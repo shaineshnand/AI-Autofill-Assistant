@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="content-area">
+    <div class="document-section">
+        {% if not document %}
+            <div class="upload-area" id="uploadArea">
+                <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                <div class="upload-text">Drop your document here or click to upload</div>
+                <div class="upload-subtext">Supports PDF, Word, Text, Images, and more document formats</div>
+                <form id="uploadForm" method="post" action="/upload/" enctype="multipart/form-data" style="display: none;">
+                    {% csrf_token %}
+                    <input type="file" id="fileInput" name="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.tif,.webp,.doc,.docx,.txt,.rtf">
+                </form>
+            </div>
+        {% else %}
+            <div class="document-info">
+                <h3><i class="fas fa-file-alt"></i> {{ document.filename }}</h3>
+                <p><strong>Document ID:</strong> {{ document.id }}</p>
+                <p><strong>Total Fields:</strong> {{ document.total_blanks }}</p>
+                <p><strong>Status:</strong> Ready for filling</p>
+                <div class="document-actions">
+                    <button class="btn btn-info preview-btn" id="previewBtn">
+                        <i class="fas fa-eye"></i> Preview Document
+                    </button>
+                    <button class="btn btn-warning regenerate-btn" id="regenerateBtn">
+                        <i class="fas fa-redo"></i> Generate Original Form with Answers
+                    </button>
+                    <button class="btn btn-primary start-over-btn" id="startOverBtn">
+                        <i class="fas fa-upload"></i> Upload New Document
+                    </button>
+                </div>
+            </div>
+
+            <div class="fields-list">
+                <div class="fields-header">
+                    <h3><i class="fas fa-edit"></i> Document Fields</h3>
+                    {% if ollama_status.running %}
+                        <button class="btn btn-success fill-all-btn" id="fillAllBtn">
+                            <i class="fas fa-magic"></i> AI Fill All Fields
+                        </button>
+                    {% endif %}
+                </div>
+                {% for field in document.fields %}
+                    <div class="field-item">
+                        <div class="field-header">
+                            <span class="field-label">Field {{ field.id }}</span>
+                            <span class="field-context">{{ field.context }}</span>
+                            {% if ollama_status.running %}
+                                <button class="btn btn-secondary ai-suggest-btn" data-field-id="{{ field.id }}">
+                                    <i class="fas fa-brain"></i> AI Suggest
+                                </button>
+                            {% endif %}
+                        </div>
+                        <input type="text" class="field-input" 
+                               placeholder="Enter {{ field.context }}..." 
+                               value="{{ field.user_content }}"
+                               data-field-id="{{ field.id }}">
+                        {% if field.ai_suggestion %}
+                            <div class="ai-suggestion">
+                                <strong>AI Suggestion:</strong> {{ field.ai_suggestion }}
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-success" id="generatePdfBtn">
+                    <i class="fas fa-download"></i> Generate & Download PDF
+                </button>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="chat-section">
+        <div class="chat-header">
+            <h3><i class="fas fa-comments"></i> AI Assistant</h3>
+            <div class="ollama-status">
+                {% if ollama_status.running %}
+                    <span class="status-indicator online">
+                        <i class="fas fa-circle"></i> Ollama Online ({{ ollama_status.models|length }} models)
+                    </span>
+                {% else %}
+                    <span class="status-indicator offline">
+                        <i class="fas fa-circle"></i> Ollama Offline - Using fallback responses
+                    </span>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="chat-messages" id="chatMessages">
+            {% if document %}
+                <div class="message bot">
+                    <div class="message-content">
+                        Great! I've analyzed your document "{{ document.filename }}" and found {{ document.total_blanks }} blank spaces that need to be filled. I can help you fill them out. What information would you like to provide?
+                    </div>
+                    <div class="message-time">{{ now|date:"H:i" }}</div>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="chat-input">
+            <div class="input-group">
+                <input type="text" class="chat-input-field" id="chatInput"
+                       placeholder="Ask me anything about your document...">
+                <button class="send-button" id="sendBtn">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden form for document ID -->
+{% if document %}
+    <input type="hidden" id="documentId" value="{{ document.id }}">
+{% endif %}
+<!-- Document Preview Modal -->
+<div id="previewModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3><i class="fas fa-eye"></i> Document Preview</h3>
+            <span class="close" id="closePreview">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div id="previewContent">
+                <div class="preview-loading">
+                    <i class="fas fa-spinner fa-spin"></i> Loading document preview...
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" id="closePreviewBtn">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const documentId = document.getElementById('documentId')?.value;
+    const ollamaStatus = {{ ollama_status|safe }};
+</script>
+{% endblock %}
