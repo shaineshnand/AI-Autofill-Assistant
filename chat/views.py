@@ -6,6 +6,7 @@ from django.http import Http404
 from ollama_integration import OllamaChatBot, OllamaClient
 from datetime import datetime
 import re
+from intelligent_field_filler import IntelligentFieldFiller
 
 @api_view(['POST'])
 def general_chat(request):
@@ -157,15 +158,30 @@ def suggest_field_content(request, doc_id):
         if not field:
             return Response({'error': 'Field not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        # Get AI suggestion
-        ollama = OllamaClient()
-        suggestion = ollama.suggest_field_content(field['context'], user_input)
+        # Use intelligent field filler for better suggestions
+        intelligent_filler = IntelligentFieldFiller()
+        
+        # Get document context
+        doc_context = {
+            'document_type': 'form',
+            'total_blanks': document['total_blanks'],
+            'field_types': [f['field_type'] for f in document['fields']],
+            'extracted_text': document['extracted_text']
+        }
+        
+        # Get suggestions based on user input and field context
+        suggestion = intelligent_filler.suggest_field_content(field, user_input, doc_context)
+        
+        # Also get alternative suggestions
+        alternative_suggestions = intelligent_filler.get_field_suggestions(field, doc_context)
         
         return Response({
             'success': True,
             'field_id': field_id,
             'suggestion': suggestion,
-            'context': field['context']
+            'alternative_suggestions': alternative_suggestions,
+            'context': field['context'],
+            'field_type': field['field_type']
         })
         
     except Exception as e:
@@ -189,24 +205,19 @@ def fill_all_fields(request, doc_id):
             'extracted_text': document['extracted_text']
         }
         
-        # Process with chatbot to get suggestions for all fields
-        chatbot = OllamaChatBot()
+        # Use intelligent field filler for better content generation
+        intelligent_filler = IntelligentFieldFiller()
         filled_fields = []
         
         for field in document['fields']:
             if not field['user_content']:  # Only fill empty fields
-                # Create a specific prompt for this field
-                field_prompt = f"Suggest appropriate content for a {field['context']} field in a form. Provide a realistic example value."
-                response = chatbot.process_message(field_prompt, doc_context)
-                
-                # Extract the suggested content (simple extraction)
-                suggested_content = response.strip()
-                if len(suggested_content) > 100:  # If response is too long, take first part
-                    suggested_content = suggested_content[:100] + "..."
+                # Generate intelligent content based on field type and context
+                suggested_content = intelligent_filler.generate_field_content(field, doc_context)
                 
                 filled_fields.append({
                     'id': field['id'],
-                    'content': suggested_content
+                    'content': suggested_content,
+                    'type': field['field_type']
                 })
                 
                 # Update the field in the document
@@ -224,75 +235,49 @@ def fill_all_fields(request, doc_id):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 def extract_and_fill_fields(message, response, document):
-    """Extract information from chat and fill relevant fields"""
+    """Extract information from chat and fill relevant fields using intelligent filler"""
     filled_fields = []
-    message_lower = message.lower()
-    response_lower = response.lower()
     
-    # Define patterns for different field types
-    patterns = {
-        'name': [
-            r'my name is (\w+(?:\s+\w+)*)',
-            r'i am (\w+(?:\s+\w+)*)',
-            r'call me (\w+(?:\s+\w+)*)',
-            r'name:?\s*(\w+(?:\s+\w+)*)',
-            r'(\w+(?:\s+\w+)*) is my name'
-        ],
-        'email': [
-            r'my email is ([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})',
-            r'email:?\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})',
-            r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})',
-            r'contact me at ([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})'
-        ],
-        'phone': [
-            r'my phone is ([\d\s\-\(\)\+]+)',
-            r'phone:?\s*([\d\s\-\(\)\+]+)',
-            r'call me at ([\d\s\-\(\)\+]+)',
-            r'number:?\s*([\d\s\-\(\)\+]+)'
-        ],
-        'age': [
-            r'i am (\d+) years old',
-            r'age:?\s*(\d+)',
-            r'i\'m (\d+)',
-            r'(\d+) years old'
-        ],
-        'address': [
-            r'my address is ([^.!?]+)',
-            r'address:?\s*([^.!?]+)',
-            r'i live at ([^.!?]+)',
-            r'located at ([^.!?]+)'
-        ]
+    # Use intelligent field filler for better extraction
+    intelligent_filler = IntelligentFieldFiller()
+    
+    # Get document context
+    doc_context = {
+        'document_type': 'form',
+        'total_blanks': document['total_blanks'],
+        'field_types': [field['field_type'] for field in document['fields']],
+        'extracted_text': document['extracted_text']
     }
     
     # Check each field in the document
     for field in document['fields']:
-        field_type = field['context']
-        
         # Skip if field already has content
         if field['user_content']:
             continue
-            
-        # Check patterns for this field type
-        if field_type in patterns:
-            for pattern in patterns[field_type]:
-                # Check both user message and AI response
-                for text in [message, response]:
-                    match = re.search(pattern, text, re.IGNORECASE)
-                    if match:
-                        extracted_value = match.group(1).strip()
-                        if extracted_value and len(extracted_value) > 1:
-                            # Update the field
-                            field['user_content'] = extracted_value
-                            field['ai_suggestion'] = extracted_value
-                            field['ai_enhanced'] = True
-                            
-                            filled_fields.append({
-                                'id': field['id'],
-                                'type': field_type,
-                                'content': extracted_value
-                            })
-                            break
-                if field['user_content']:  # If field was filled, break outer loop
-                    break
+        
+        # Try to extract content from user message first
+        extracted_content = intelligent_filler._extract_content_from_input(message, field['field_type'])
+        
+        # If no content extracted from message, try AI response
+        if not extracted_content:
+            extracted_content = intelligent_filler._extract_content_from_input(response, field['field_type'])
+        
+        # If still no content, generate based on field type
+        if not extracted_content:
+            extracted_content = intelligent_filler.generate_field_content(field, doc_context)
+        
+        if extracted_content:
+            # Validate the content
+            if intelligent_filler.validate_field_content(extracted_content, field['field_type']):
+                # Update the field
+                field['user_content'] = extracted_content
+                field['ai_suggestion'] = extracted_content
+                field['ai_enhanced'] = True
+                
+                filled_fields.append({
+                    'id': field['id'],
+                    'type': field['field_type'],
+                    'content': extracted_content
+                })
     
     return filled_fields

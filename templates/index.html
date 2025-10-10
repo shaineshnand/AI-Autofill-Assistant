@@ -27,31 +27,58 @@
                     <button class="btn btn-warning regenerate-btn" id="regenerateBtn">
                         <i class="fas fa-redo"></i> Generate Original Form with Answers
                     </button>
+                    <button class="btn btn-success train-btn" id="trainBtn">
+                        <i class="fas fa-graduation-cap"></i> Train System
+                    </button>
                     <button class="btn btn-primary start-over-btn" id="startOverBtn">
                         <i class="fas fa-upload"></i> Upload New Document
                     </button>
+                </div>
+                
+                <!-- Training Status -->
+                <div class="training-status" id="trainingStatus" style="display: none;">
+                    <h4><i class="fas fa-graduation-cap"></i> Training Status</h4>
+                    <div class="training-info" id="trainingInfo">
+                        <!-- Training information will be populated here -->
+                    </div>
                 </div>
             </div>
 
             <div class="fields-list">
                 <div class="fields-header">
                     <h3><i class="fas fa-edit"></i> Document Fields</h3>
-                    {% if ollama_status.running %}
-                        <button class="btn btn-success fill-all-btn" id="fillAllBtn">
-                            <i class="fas fa-magic"></i> AI Fill All Fields
+                    <div class="bulk-actions">
+                        <button class="btn btn-secondary" id="selectAllBtn" title="Select all fields">
+                            <i class="fas fa-check-square"></i> Select All
                         </button>
-                    {% endif %}
+                        <button class="btn btn-danger" id="deleteSelectedBtn" style="display: none;" title="Delete selected fields">
+                            <i class="fas fa-trash-alt"></i> Delete Selected (<span id="selectedCount">0</span>)
+                        </button>
+                        {% if ollama_status.running %}
+                            <button class="btn btn-success fill-all-btn" id="fillAllBtn">
+                                <i class="fas fa-magic"></i> AI Fill All Fields
+                            </button>
+                        {% endif %}
+                    </div>
                 </div>
                 {% for field in document.fields %}
-                    <div class="field-item">
+                    <div class="field-item" data-field-id="{{ field.id }}">
                         <div class="field-header">
-                            <span class="field-label">Field {{ field.id }}</span>
-                            <span class="field-context">{{ field.context }}</span>
-                            {% if ollama_status.running %}
-                                <button class="btn btn-secondary ai-suggest-btn" data-field-id="{{ field.id }}">
-                                    <i class="fas fa-brain"></i> AI Suggest
+                            <div class="field-info">
+                                <input type="checkbox" class="field-checkbox" data-field-id="{{ field.id }}" title="Select for deletion">
+                                <span class="field-label">Field {{ field.id }}</span>
+                                <span class="field-context">{{ field.context }}</span>
+                            </div>
+                            <div class="field-actions">
+                                {% if ollama_status.running %}
+                                    <button class="btn btn-secondary ai-suggest-btn" data-field-id="{{ field.id }}">
+                                        <i class="fas fa-brain"></i> AI Suggest
+                                    </button>
+                                {% endif %}
+                                <button class="btn btn-danger delete-field-btn" data-field-id="{{ field.id }}" title="Delete this field">
+                                    <i class="fas fa-trash"></i> Delete
                                 </button>
-                            {% endif %}
+                            </div>
                         </div>
                         <input type="text" class="field-input" 
                                placeholder="Enter {{ field.context }}..." 
@@ -141,6 +168,9 @@
 {% block extra_js %}
 <script>
     const documentId = document.getElementById('documentId')?.value;
-    const ollamaStatus = {{ ollama_status|safe }};
+    const ollamaStatus = {
+        running: {% if ollama_status.running %}true{% else %}false{% endif %},
+        models: [{% for model in ollama_status.models %}"{{ model }}"{% if not forloop.last %}, {% endif %}{% endfor %}]
+    };
 </script>
 {% endblock %}

@@ -136,7 +136,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         try {
-            const response = await fetch(`/api/documents/${documentId}/preview/`);
+                    const response = await fetch(`/${documentId}/preview/`);
             const data = await response.json();
             
             if (data.success) {
@@ -230,7 +230,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 regenerateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Form with Answers...';
 
                 try {
-                    const response = await fetch(`/api/documents/${documentId}/regenerate/`, {
+                    const response = await fetch(`/${documentId}/regenerate/`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -291,6 +291,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
             
             if (data.success) {
+                // Show automatic training results if available
+                if (data.training) {
+                    showAutomaticTrainingResults(data.training);
+                }
                 // Redirect to main page to view the uploaded document
                 window.location.href = '/';
             } else {
@@ -359,6 +363,67 @@ document.addEventListener('DOMContentLoaded', function() {
             getAISuggestion(fieldId);
         });
     });
+
+    // Delete field buttons
+    const deleteFieldBtns = document.querySelectorAll('.delete-field-btn');
+    deleteFieldBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const fieldId = btn.dataset.fieldId;
+            deleteField(fieldId);
+        });
+    });
+
+    // Bulk delete functionality
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+    const selectedCountSpan = document.getElementById('selectedCount');
+    const fieldCheckboxes = document.querySelectorAll('.field-checkbox');
+
+    // Update selected count and show/hide delete button
+    function updateSelectedCount() {
+        const checkedBoxes = document.querySelectorAll('.field-checkbox:checked');
+        const count = checkedBoxes.length;
+        if (selectedCountSpan) selectedCountSpan.textContent = count;
+        if (deleteSelectedBtn) {
+            deleteSelectedBtn.style.display = count > 0 ? 'inline-block' : 'none';
+        }
+        
+        // Update Select All button text
+        if (selectAllBtn) {
+            const allCheckboxes = document.querySelectorAll('.field-checkbox');
+            if (count === allCheckboxes.length && count > 0) {
+                selectAllBtn.innerHTML = '<i class="fas fa-square"></i> Deselect All';
+            } else {
+                selectAllBtn.innerHTML = '<i class="fas fa-check-square"></i> Select All';
+            }
+        }
+    }
+
+    // Select/Deselect All button
+    if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', () => {
+            const allCheckboxes = document.querySelectorAll('.field-checkbox');
+            const checkedCount = document.querySelectorAll('.field-checkbox:checked').length;
+            const shouldCheck = checkedCount !== allCheckboxes.length;
+            
+            allCheckboxes.forEach(checkbox => {
+                checkbox.checked = shouldCheck;
+            });
+            updateSelectedCount();
+        });
+    }
+
+    // Checkbox change events
+    fieldCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', updateSelectedCount);
+    });
+
+    // Delete Selected button
+    if (deleteSelectedBtn) {
+        deleteSelectedBtn.addEventListener('click', () => {
+            deleteSelectedFields();
+        });
+    }
 
     // PDF generation
     if (generatePdfBtn && documentId) {
@@ -469,6 +534,142 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    async function deleteField(fieldId) {
+        if (!documentId) return;
+
+        // Confirm deletion
+        if (!confirm(`Are you sure you want to delete Field ${fieldId}? This will be permanently removed from the backend.`)) {
+            return;
+        }
+
+        try {
+            // Find the field item container
+            const fieldItem = document.querySelector(`.field-item[data-field-id="${fieldId}"]`);
+            
+            // Add a visual effect to show it's being deleted
+            if (fieldItem) {
+                fieldItem.style.opacity = '0.5';
+                fieldItem.style.transition = 'opacity 0.3s ease';
+            }
+
+            // Call backend to delete the field
+            console.log(`Deleting field ${fieldId} from document ${documentId}`);
+            const response = await fetch(`/api/documents/${documentId}/delete-field/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({
+                    field_id: fieldId
+                })
+            });
+
+            console.log(`Delete response status: ${response.status}`);
+            const data = await response.json();
+            console.log('Delete response data:', data);
+            
+            if (data.success) {
+                // Remove the field from the UI
+                if (fieldItem) {
+                    setTimeout(() => {
+                        fieldItem.remove();
+                    }, 300);
+                }
+
+                // Add message to chat
+                addMessage(`✅ Field ${fieldId} deleted! ${data.remaining_fields} fields remaining.`, 'bot');
+            } else {
+                if (fieldItem) fieldItem.style.opacity = '1';
+                addMessage(`❌ Failed to delete Field ${fieldId}: ${data.error || JSON.stringify(data)}`, 'bot');
+            }
+
+        } catch (error) {
+            console.error('Failed to delete field:', error);
+            const fieldItem = document.querySelector(`.field-item[data-field-id="${fieldId}"]`);
+            if (fieldItem) fieldItem.style.opacity = '1';
+            addMessage(`❌ Failed to delete Field ${fieldId}. Please try again.`, 'bot');
+        }
+    }
+
+    async function deleteSelectedFields() {
+        if (!documentId) return;
+
+        const checkedBoxes = document.querySelectorAll('.field-checkbox:checked');
+        const fieldIds = Array.from(checkedBoxes).map(cb => cb.dataset.fieldId);
+        
+        if (fieldIds.length === 0) {
+            addMessage('❌ No fields selected for deletion.', 'bot');
+            return;
+        }
+
+        // Confirm bulk deletion
+        if (!confirm(`Are you sure you want to delete ${fieldIds.length} fields? This will be permanently removed from the backend.`)) {
+            return;
+        }
+
+        addMessage(`🗑️ Deleting ${fieldIds.length} fields...`, 'bot');
+
+        let successCount = 0;
+        let failCount = 0;
+
+        // Delete fields one by one
+        for (const fieldId of fieldIds) {
+            try {
+                const fieldItem = document.querySelector(`.field-item[data-field-id="${fieldId}"]`);
+                
+                if (fieldItem) {
+                    fieldItem.style.opacity = '0.5';
+                    fieldItem.style.transition = 'opacity 0.3s ease';
+                }
+
+                const response = await fetch(`/api/documents/${documentId}/delete-field/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({
+                        field_id: fieldId
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    successCount++;
+                    if (fieldItem) {
+                        setTimeout(() => {
+                            fieldItem.remove();
+                        }, 300);
+                    }
+                } else {
+                    failCount++;
+                    if (fieldItem) fieldItem.style.opacity = '1';
+                }
+
+            } catch (error) {
+                console.error(`Failed to delete field ${fieldId}:`, error);
+                failCount++;
+                const fieldItem = document.querySelector(`.field-item[data-field-id="${fieldId}"]`);
+                if (fieldItem) fieldItem.style.opacity = '1';
+            }
+        }
+
+        // Show results
+        if (successCount > 0) {
+            addMessage(`✅ Successfully deleted ${successCount} field(s)!`, 'bot');
+        }
+        if (failCount > 0) {
+            addMessage(`❌ Failed to delete ${failCount} field(s).`, 'bot');
+        }
+
+        // Reset checkboxes and update count
+        setTimeout(() => {
+            updateSelectedCount();
+        }, 500);
+    }
+
     async function generatePDF() {
         if (!documentId) return;
 
@@ -538,5 +739,95 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         return cookieValue;
     }
+
+    // Training functionality
+    const trainBtn = document.getElementById('trainBtn');
+    const trainingStatus = document.getElementById('trainingStatus');
+    const trainingInfo = document.getElementById('trainingInfo');
+
+    if (trainBtn) {
+        trainBtn.addEventListener('click', function() {
+            const documentId = document.getElementById('documentId')?.value;
+            if (!documentId) {
+                alert('No document loaded');
+                return;
+            }
+
+            trainBtn.disabled = true;
+            trainBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Training...';
+
+            fetch(`/${documentId}/train/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showTrainingResults(data.training);
+                    addMessage(`Training completed successfully! Added ${data.training.samples_added} samples.`, 'bot');
+                } else {
+                    alert('Training failed: ' + data.message);
+                    addMessage('Training failed: ' + data.message, 'bot');
+                }
+            })
+            .catch(error => {
+                console.error('Training error:', error);
+                alert('Training failed: ' + error.message);
+                addMessage('Training failed: ' + error.message, 'bot');
+            })
+            .finally(() => {
+                trainBtn.disabled = false;
+                trainBtn.innerHTML = '<i class="fas fa-graduation-cap"></i> Train System';
+            });
+        });
+    }
+
+    function showTrainingResults(training) {
+        if (!trainingStatus || !trainingInfo) return;
+
+        const resultsHtml = `
+            <div class="training-result">
+                <p><strong>Samples Added:</strong> ${training.samples_added}</p>
+                <p><strong>Document Type:</strong> ${training.document_type}</p>
+                ${training.field_type_accuracy ? `<p><strong>Field Accuracy:</strong> ${(training.field_type_accuracy * 100).toFixed(1)}%</p>` : ''}
+                ${training.document_type_accuracy ? `<p><strong>Document Accuracy:</strong> ${(training.document_type_accuracy * 100).toFixed(1)}%</p>` : ''}
+                ${training.training_samples ? `<p><strong>Total Training Samples:</strong> ${training.training_samples}</p>` : ''}
+                ${training.note ? `<p><strong>Note:</strong> ${training.note}</p>` : ''}
+            </div>
+        `;
+
+        trainingInfo.innerHTML = resultsHtml;
+        trainingStatus.style.display = 'block';
+    }
+
+    function showAutomaticTrainingResults(training) {
+        // Show a notification about automatic training
+        const message = `🤖 Automatic Training: Added ${training.samples_added} samples for ${training.document_type} documents. The system is getting smarter!`;
+        addMessage(message, 'bot');
+        
+        // You can also show a toast notification or modal here
+        console.log('Automatic training completed:', training);
+    }
+
+    // Load training stats on page load
+    function loadTrainingStats() {
+        fetch('/api/training-stats/')
+            .then(response => response.json())
+            .then(data => {
+                if (data.document_templates !== undefined) {
+                    console.log('Training Stats:', data);
+                    // You can display these stats somewhere in the UI if needed
+                }
+            })
+            .catch(error => {
+                console.error('Error loading training stats:', error);
+            });
+    }
+
+    // Load training stats when page loads
+    loadTrainingStats();
 });
 

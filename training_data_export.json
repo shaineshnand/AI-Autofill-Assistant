@@ -1,0 +1,620 @@
+{
+  "samples": [
+    {
+      "text": "Please enter your full name:",
+      "field_type": "name",
+      "document_type": "application_form",
+      "context": "full name",
+      "confidence": 1.0
+    },
+    {
+      "text": "Email Address:",
+      "field_type": "email",
+      "document_type": "application_form",
+      "context": "email address",
+      "confidence": 1.0
+    },
+    {
+      "text": "Phone Number:",
+      "field_type": "phone",
+      "document_type": "application_form",
+      "context": "phone number",
+      "confidence": 1.0
+    },
+    {
+      "text": "Date of Birth:",
+      "field_type": "date_of_birth",
+      "document_type": "application_form",
+      "context": "date of birth",
+      "confidence": 1.0
+    },
+    {
+      "text": "Social Security Number:",
+      "field_type": "ssn",
+      "document_type": "application_form",
+      "context": "social security number",
+      "confidence": 1.0
+    },
+    {
+      "text": "Annual Income:",
+      "field_type": "income",
+      "document_type": "financial_form",
+      "context": "annual income",
+      "confidence": 1.0
+    },
+    {
+      "text": "Bank Account Number:",
+      "field_type": "bank_account",
+      "document_type": "financial_form",
+      "context": "bank account number",
+      "confidence": 1.0
+    },
+    {
+      "text": "Credit Score:",
+      "field_type": "credit_score",
+      "document_type": "financial_form",
+      "context": "credit score",
+      "confidence": 1.0
+    },
+    {
+      "text": "Patient ID:",
+      "field_type": "patient_id",
+      "document_type": "medical_form",
+      "context": "patient id",
+      "confidence": 1.0
+    },
+    {
+      "text": "Insurance Provider:",
+      "field_type": "insurance",
+      "document_type": "medical_form",
+      "context": "insurance provider",
+      "confidence": 1.0
+    },
+    {
+      "text": "Current Medications:",
+      "field_type": "medications",
+      "document_type": "medical_form",
+      "context": "current medications",
+      "confidence": 1.0
+    },
+    {
+      "text": "Known Allergies:",
+      "field_type": "allergies",
+      "document_type": "medical_form",
+      "context": "known allergies",
+      "confidence": 1.0
+    },
+    {
+      "text": "Case Number:",
+      "field_type": "case_number",
+      "document_type": "legal_document",
+      "context": "case number",
+      "confidence": 1.0
+    },
+    {
+      "text": "Court Name:",
+      "field_type": "court",
+      "document_type": "legal_document",
+      "context": "court name",
+      "confidence": 1.0
+    },
+    {
+      "text": "Attorney Name:",
+      "field_type": "attorney",
+      "document_type": "legal_document",
+      "context": "attorney name",
+      "confidence": 1.0
+    },
+    {
+      "text": "Student ID:",
+      "field_type": "student_id",
+      "document_type": "education_form",
+      "context": "student id",
+      "confidence": 1.0
+    },
+    {
+      "text": "GPA:",
+      "field_type": "gpa",
+      "document_type": "education_form",
+      "context": "gpa",
+      "confidence": 1.0
+    },
+    {
+      "text": "Major:",
+      "field_type": "major",
+      "document_type": "education_form",
+      "context": "major",
+      "confidence": 1.0
+    },
+    {
+      "text": "Comments:",
+      "field_type": "text",
+      "document_type": "application_form",
+      "context": "comments",
+      "confidence": 1.0
+    },
+    {
+      "text": "Additional Information:",
+      "field_type": "text",
+      "document_type": "application_form",
+      "context": "additional information",
+      "confidence": 1.0
+    },
+    {
+      "text": "Check all that apply:",
+      "field_type": "checkbox",
+      "document_type": "application_form",
+      "context": "check all that apply",
+      "confidence": 1.0
+    },
+    {
+      "text": "I agree to the terms and conditions",
+      "field_type": "checkbox",
+      "document_type": "contract",
+      "context": "terms and conditions",
+      "confidence": 1.0
+    },
+    {
+      "text": "Please select your state:",
+      "field_type": "dropdown",
+      "document_type": "application_form",
+      "context": "select state",
+      "confidence": 1.0
+    },
+    {
+      "text": "Choose your preferred contact method:",
+      "field_type": "dropdown",
+      "document_type": "application_form",
+      "context": "contact method",
+      "confidence": 1.0
+    }
+  ],
+  "templates": [
+    {
+      "document_type": "application_form",
+      "description": "General application forms for various purposes",
+      "field_patterns": {
+        "name": [
+          "name",
+          "full name",
+          "applicant name"
+        ],
+        "email": [
+          "email",
+          "email address"
+        ],
+        "phone": [
+          "phone",
+          "telephone",
+          "contact number"
+        ],
+        "address": [
+          "address",
+          "home address",
+          "mailing address"
+        ],
+        "date_of_birth": [
+          "date of birth",
+          "dob",
+          "birth date"
+        ],
+        "ssn": [
+          "ssn",
+          "social security number"
+        ]
+      },
+      "layout_patterns": {},
+      "validation_rules": {
+        "email": [
+          "email_format"
+        ],
+        "phone": [
+          "phone_format"
+        ],
+        "ssn": [
+          "ssn_format"
+        ],
+        "date_of_birth": [
+          "date_format"
+        ]
+      },
+      "confidence_threshold": 0.7,
+      "training_samples": []
+    },
+    {
+      "document_type": "financial_form",
+      "description": "Financial forms for loans, applications, etc.",
+      "field_patterns": {
+        "income": [
+          "income",
+          "annual income",
+          "monthly income"
+        ],
+        "bank_account": [
+          "bank account",
+          "account number"
+        ],
+        "credit_score": [
+          "credit score",
+          "fico score"
+        ],
+        "assets": [
+          "assets",
+          "total assets",
+          "net worth"
+        ]
+      },
+      "layout_patterns": {},
+      "validation_rules": {
+        "income": [
+          "numeric",
+          "positive"
+        ],
+        "credit_score": [
+          "numeric",
+          "range_300_850"
+        ]
+      },
+      "confidence_threshold": 0.7,
+      "training_samples": []
+    },
+    {
+      "document_type": "medical_form",
+      "description": "Medical forms and health-related documents",
+      "field_patterns": {
+        "patient_id": [
+          "patient id",
+          "patient number",
+          "mrn"
+        ],
+        "insurance": [
+          "insurance",
+          "health insurance"
+        ],
+        "medications": [
+          "medications",
+          "current medications"
+        ],
+        "allergies": [
+          "allergies",
+          "known allergies"
+        ]
+      },
+      "layout_patterns": {},
+      "validation_rules": {
+        "patient_id": [
+          "alphanumeric"
+        ],
+        "medications": [
+          "text_list"
+        ],
+        "allergies": [
+          "text_list"
+        ]
+      },
+      "confidence_threshold": 0.7,
+      "training_samples": []
+    },
+    {
+      "document_type": "legal_document",
+      "description": "Legal documents and court forms",
+      "field_patterns": {
+        "case_number": [
+          "case number",
+          "case id",
+          "docket number"
+        ],
+        "court": [
+          "court",
+          "court name",
+          "jurisdiction"
+        ],
+        "attorney": [
+          "attorney",
+          "lawyer",
+          "counsel"
+        ]
+      },
+      "layout_patterns": {},
+      "validation_rules": {
+        "case_number": [
+          "alphanumeric"
+        ],
+        "court": [
+          "text"
+        ],
+        "attorney": [
+          "text"
+        ]
+      },
+      "confidence_threshold": 0.7,
+      "training_samples": []
+    },
+    {
+      "document_type": "education_form",
+      "description": "Educational forms and academic documents",
+      "field_patterns": {
+        "student_id": [
+          "student id",
+          "student number"
+        ],
+        "gpa": [
+          "gpa",
+          "grade point average"
+        ],
+        "major": [
+          "major",
+          "field of study",
+          "program"
+        ]
+      },
+      "layout_patterns": {},
+      "validation_rules": {
+        "student_id": [
+          "alphanumeric"
+        ],
+        "gpa": [
+          "numeric",
+          "range_0_4"
+        ],
+        "major": [
+          "text"
+        ]
+      },
+      "confidence_threshold": 0.7,
+      "training_samples": []
+    }
+  ],
+  "field_patterns": {
+    "personal_info": {
+      "name": [
+        "name",
+        "full name",
+        "first name",
+        "last name",
+        "given name",
+        "surname",
+        "family name",
+        "applicant name",
+        "patient name",
+        "student name",
+        "employee name",
+        "client name"
+      ],
+      "email": [
+        "email",
+        "e-mail",
+        "email address",
+        "electronic mail",
+        "contact email",
+        "primary email",
+        "work email"
+      ],
+      "phone": [
+        "phone",
+        "telephone",
+        "mobile",
+        "cell phone",
+        "home phone",
+        "work phone",
+        "contact number",
+        "phone number"
+      ],
+      "address": [
+        "address",
+        "home address",
+        "mailing address",
+        "street address",
+        "residential address",
+        "billing address",
+        "shipping address"
+      ],
+      "date_of_birth": [
+        "date of birth",
+        "dob",
+        "birth date",
+        "birthday",
+        "date born",
+        "age",
+        "born",
+        "birth"
+      ],
+      "ssn": [
+        "ssn",
+        "social security number",
+        "social security",
+        "ss number",
+        "tax id",
+        "tax identification"
+      ],
+      "id_number": [
+        "id number",
+        "identification number",
+        "license number",
+        "passport number",
+        "driver license",
+        "employee id"
+      ]
+    },
+    "financial": {
+      "income": [
+        "income",
+        "annual income",
+        "monthly income",
+        "salary",
+        "wages",
+        "gross income",
+        "net income",
+        "total income"
+      ],
+      "bank_account": [
+        "bank account",
+        "account number",
+        "routing number",
+        "checking account",
+        "savings account",
+        "account info"
+      ],
+      "credit_score": [
+        "credit score",
+        "fico score",
+        "credit rating",
+        "credit history"
+      ],
+      "assets": [
+        "assets",
+        "total assets",
+        "net worth",
+        "property value",
+        "investment value",
+        "savings",
+        "retirement funds"
+      ]
+    },
+    "medical": {
+      "patient_id": [
+        "patient id",
+        "patient number",
+        "medical record number",
+        "mrn",
+        "patient identifier"
+      ],
+      "insurance": [
+        "insurance",
+        "health insurance",
+        "insurance provider",
+        "policy number",
+        "group number",
+        "member id"
+      ],
+      "medications": [
+        "medications",
+        "current medications",
+        "prescription drugs",
+        "drugs",
+        "medicines",
+        "pharmaceuticals"
+      ],
+      "allergies": [
+        "allergies",
+        "allergic to",
+        "drug allergies",
+        "food allergies",
+        "known allergies",
+        "allergy information"
+      ]
+    },
+    "legal": {
+      "case_number": [
+        "case number",
+        "case id",
+        "docket number",
+        "file number",
+        "reference number",
+        "claim number"
+      ],
+      "court": [
+        "court",
+        "court name",
+        "jurisdiction",
+        "venue",
+        "filing court",
+        "hearing court"
+      ],
+      "attorney": [
+        "attorney",
+        "lawyer",
+        "counsel",
+        "legal representative",
+        "advocate",
+        "barrister"
+      ]
+    },
+    "education": {
+      "student_id": [
+        "student id",
+        "student number",
+        "enrollment number",
+        "registration number",
+        "student identifier"
+      ],
+      "gpa": [
+        "gpa",
+        "grade point average",
+        "cumulative gpa",
+        "overall gpa",
+        "academic average"
+      ],
+      "major": [
+        "major",
+        "field of study",
+        "program",
+        "degree program",
+        "academic program",
+        "concentration"
+      ]
+    }
+  },
+  "document_type_patterns": {
+    "application_form": [
+      "application",
+      "apply",
+      "applicant",
+      "submission",
+      "enrollment",
+      "registration",
+      "admission",
+      "membership"
+    ],
+    "contract": [
+      "contract",
+      "agreement",
+      "terms",
+      "conditions",
+      "clause",
+      "signature",
+      "party",
+      "obligation"
+    ],
+    "invoice": [
+      "invoice",
+      "bill",
+      "payment",
+      "amount due",
+      "total",
+      "subtotal",
+      "tax",
+      "invoice number"
+    ],
+    "medical_form": [
+      "medical",
+      "health",
+      "patient",
+      "doctor",
+      "physician",
+      "diagnosis",
+      "treatment",
+      "symptoms"
+    ],
+    "legal_document": [
+      "legal",
+      "court",
+      "law",
+      "attorney",
+      "plaintiff",
+      "defendant",
+      "judgment",
+      "settlement"
+    ],
+    "financial_form": [
+      "financial",
+      "income",
+      "expenses",
+      "assets",
+      "liabilities",
+      "credit",
+      "loan",
+      "mortgage"
+    ]
+  }
+}

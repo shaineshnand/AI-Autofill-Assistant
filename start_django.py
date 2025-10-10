@@ -55,7 +55,8 @@ def check_ollama_installation():
     print("Checking Ollama installation...")
     try:
         result = subprocess.run(['ollama', '--version'], 
-                              capture_output=True, text=True, timeout=5)
+                              capture_output=True, text=True, 
+                              encoding='utf-8', errors='ignore', timeout=5)
         if result.returncode == 0:
             print("Ollama is installed")
             return True
@@ -70,10 +71,11 @@ def start_ollama_service():
     """Start Ollama service in background"""
     print("Starting Ollama service...")
     try:
-        # Start Ollama in background
+        # Start Ollama in background with proper encoding handling
         process = subprocess.Popen(['ollama', 'serve'], 
                                  stdout=subprocess.DEVNULL, 
-                                 stderr=subprocess.DEVNULL)
+                                 stderr=subprocess.DEVNULL,
+                                 encoding='utf-8', errors='ignore')
         
         # Wait a bit for Ollama to start
         time.sleep(3)
@@ -102,7 +104,8 @@ def download_ollama_model():
     print("Downloading Ollama model (llama2)...")
     try:
         result = subprocess.run(['ollama', 'pull', 'llama2'], 
-                              capture_output=True, text=True, timeout=300)
+                              capture_output=True, text=True, 
+                              encoding='utf-8', errors='ignore', timeout=300)
         if result.returncode == 0:
             print("Model downloaded successfully")
         else:

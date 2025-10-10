@@ -1,0 +1,232 @@
+[
+  {
+    "document_type": "application_form",
+    "description": "General application forms for various purposes",
+    "field_patterns": {
+      "name": [
+        "name",
+        "full name",
+        "applicant name"
+      ],
+      "email": [
+        "email",
+        "email address"
+      ],
+      "phone": [
+        "phone",
+        "telephone",
+        "contact number"
+      ],
+      "address": [
+        "address",
+        "home address",
+        "mailing address"
+      ],
+      "date_of_birth": [
+        "date of birth",
+        "dob",
+        "birth date"
+      ],
+      "ssn": [
+        "ssn",
+        "social security number"
+      ]
+    },
+    "layout_patterns": {},
+    "validation_rules": {
+      "email": [
+        "email_format"
+      ],
+      "phone": [
+        "phone_format"
+      ],
+      "ssn": [
+        "ssn_format"
+      ],
+      "date_of_birth": [
+        "date_format"
+      ]
+    },
+    "confidence_threshold": 0.7,
+    "training_samples": []
+  },
+  {
+    "document_type": "financial_form",
+    "description": "Financial forms for loans, applications, etc.",
+    "field_patterns": {
+      "income": [
+        "income",
+        "annual income",
+        "monthly income"
+      ],
+      "bank_account": [
+        "bank account",
+        "account number"
+      ],
+      "credit_score": [
+        "credit score",
+        "fico score"
+      ],
+      "assets": [
+        "assets",
+        "total assets",
+        "net worth"
+      ]
+    },
+    "layout_patterns": {},
+    "validation_rules": {
+      "income": [
+        "numeric",
+        "positive"
+      ],
+      "credit_score": [
+        "numeric",
+        "range_300_850"
+      ]
+    },
+    "confidence_threshold": 0.7,
+    "training_samples": []
+  },
+  {
+    "document_type": "medical_form",
+    "description": "Medical forms and health-related documents",
+    "field_patterns": {
+      "patient_id": [
+        "patient id",
+        "patient number",
+        "mrn"
+      ],
+      "insurance": [
+        "insurance",
+        "health insurance"
+      ],
+      "medications": [
+        "medications",
+        "current medications"
+      ],
+      "allergies": [
+        "allergies",
+        "known allergies"
+      ]
+    },
+    "layout_patterns": {},
+    "validation_rules": {
+      "patient_id": [
+        "alphanumeric"
+      ],
+      "medications": [
+        "text_list"
+      ],
+      "allergies": [
+        "text_list"
+      ]
+    },
+    "confidence_threshold": 0.7,
+    "training_samples": []
+  },
+  {
+    "document_type": "legal_document",
+    "description": "Legal documents and court forms",
+    "field_patterns": {
+      "case_number": [
+        "case number",
+        "case id",
+        "docket number"
+      ],
+      "court": [
+        "court",
+        "court name",
+        "jurisdiction"
+      ],
+      "attorney": [
+        "attorney",
+        "lawyer",
+        "counsel"
+      ]
+    },
+    "layout_patterns": {},
+    "validation_rules": {
+      "case_number": [
+        "alphanumeric"
+      ],
+      "court": [
+        "text"
+      ],
+      "attorney": [
+        "text"
+      ]
+    },
+    "confidence_threshold": 0.7,
+    "training_samples": []
+  },
+  {
+    "document_type": "education_form",
+    "description": "Educational forms and academic documents",
+    "field_patterns": {
+      "student_id": [
+        "student id",
+        "student number"
+      ],
+      "gpa": [
+        "gpa",
+        "grade point average"
+      ],
+      "major": [
+        "major",
+        "field of study",
+        "program"
+      ]
+    },
+    "layout_patterns": {},
+    "validation_rules": {
+      "student_id": [
+        "alphanumeric"
+      ],
+      "gpa": [
+        "numeric",
+        "range_0_4"
+      ],
+      "major": [
+        "text"
+      ]
+    },
+    "confidence_threshold": 0.7,
+    "training_samples": []
+  },
+  {
+    "document_type": "job_application",
+    "description": "Job application forms",
+    "field_patterns": {
+      "applicant_name": [
+        "applicant name",
+        "candidate name"
+      ],
+      "position": [
+        "position",
+        "job title",
+        "role"
+      ],
+      "experience_years": [
+        "experience",
+        "years of experience"
+      ],
+      "expected_salary": [
+        "expected salary",
+        "salary expectation"
+      ]
+    },
+    "layout_patterns": {},
+    "validation_rules": {
+      "experience_years": [
+        "numeric",
+        "positive"
+      ],
+      "expected_salary": [
+        "numeric",
+        "positive"
+      ]
+    },
+    "confidence_threshold": 0.7,
+    "training_samples": []
+  }
+]
