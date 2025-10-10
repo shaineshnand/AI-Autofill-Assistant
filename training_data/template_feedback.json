@@ -1,0 +1,52 @@
+{
+  "9b04c7b56f72a4ab": {
+    "reject": [
+      {
+        "context": "text",
+        "detection_method": "",
+        "page": 1,
+        "x": 1035,
+        "y": 1333,
+        "w": 36,
+        "h": 26
+      },
+      {
+        "context": "text",
+        "detection_method": "",
+        "page": 1,
+        "x": 494,
+        "y": 1167,
+        "w": 36,
+        "h": 26
+      },
+      {
+        "context": "text",
+        "detection_method": "",
+        "page": 1,
+        "x": 789,
+        "y": 991,
+        "w": 28,
+        "h": 18
+      },
+      {
+        "context": "text",
+        "detection_method": "",
+        "page": 1,
+        "x": 1349,
+        "y": 834,
+        "w": 42,
+        "h": 21
+      },
+      {
+        "context": "text",
+        "detection_method": "",
+        "page": 1,
+        "x": 802,
+        "y": 337,
+        "w": 61,
+        "h": 25
+      }
+    ],
+    "approve": []
+  }
+}
