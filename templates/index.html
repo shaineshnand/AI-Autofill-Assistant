@@ -54,11 +54,9 @@
                         <button class="btn btn-danger" id="deleteSelectedBtn" style="display: none;" title="Delete selected fields">
                             <i class="fas fa-trash-alt"></i> Delete Selected (<span id="selectedCount">0</span>)
                         </button>
-                        {% if ollama_status.running %}
-                            <button class="btn btn-success fill-all-btn" id="fillAllBtn">
-                                <i class="fas fa-magic"></i> AI Fill All Fields
-                            </button>
-                        {% endif %}
+                        <button class="btn btn-success fill-all-btn" id="fillAllBtn">
+                            <i class="fas fa-magic"></i> AI Fill All Fields
+                        </button>
                     </div>
                 </div>
                 {% for field in document.fields %}
@@ -70,11 +68,9 @@
                                 <span class="field-context">{{ field.context }}</span>
                             </div>
                             <div class="field-actions">
-                                {% if ollama_status.running %}
-                                    <button class="btn btn-secondary ai-suggest-btn" data-field-id="{{ field.id }}">
-                                        <i class="fas fa-brain"></i> AI Suggest
-                                    </button>
-                                {% endif %}
+                                <button class="btn btn-secondary ai-suggest-btn" data-field-id="{{ field.id }}">
+                                    <i class="fas fa-brain"></i> AI Suggest
+                                </button>
                                 <button class="btn btn-danger delete-field-btn" data-field-id="{{ field.id }}" title="Delete this field">
                                     <i class="fas fa-trash"></i> Delete
                                 </button>

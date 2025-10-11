@@ -640,9 +640,53 @@ class UniversalDocumentProcessor:
     def _detect_ml_fields(self, file_path: str, text: str) -> List[DocumentField]:
         """Detect fields using machine learning models"""
         fields = []
-        # Implementation for ML-based field detection
-        # This would use trained models to identify fields
-        return fields
+        try:
+            if not self.field_type_classifier or not self.text_vectorizer:
+                return fields
+
+            # Threshold for accepting ML predictions (tightened)
+            confidence_threshold = 0.8
+
+            lines = text.split('\n')
+            for line_num, line in enumerate(lines):
+                candidate = line.strip()
+                if not candidate:
+                    continue
+
+                try:
+                    vec = self.text_vectorizer.transform([candidate])
+                    proba = self.field_type_classifier.predict_proba(vec)
+                    pred_idx = int(np.argmax(proba))
+                    pred_label = self.field_type_classifier.classes_[pred_idx]
+                    pred_conf = float(proba[0][pred_idx])
+
+                    # Skip generic text or low-confidence predictions
+                    if pred_label == 'text' or pred_conf < confidence_threshold:
+                        continue
+
+                    # Create a virtual field positioned based on line index
+                    # Note: Without layout info, we approximate positions similar to text pattern detection
+                    field = DocumentField(
+                        id=f"ml_text_{line_num}",
+                        field_type=str(pred_label),
+                        x_position=200,
+                        y_position=line_num * 25,
+                        width=220,
+                        height=28,
+                        page_number=0,
+                        context=candidate.lower(),
+                        confidence=pred_conf,
+                        detection_method="ml_text"
+                    )
+                    fields.append(field)
+                except Exception:
+                    # If any single line fails, continue with others
+                    continue
+
+            return fields
+        except Exception as e:
+            logger.error(f"Error in ML-based field detection: {e}")
+            return []
     
     def _classify_pdf_field_type(self, widget) -> str:
         """Classify PDF widget type"""

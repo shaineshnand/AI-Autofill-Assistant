@@ -1264,12 +1264,11 @@ def create_filled_pdf(input_path, output_path, fields):
         # Open the original PDF
         doc = fitz.open(input_path)
         
-        # Create a new PDF document
-        new_doc = fitz.open()
+        # We will write directly into the original PDF (keeps AcroForm updates intact)
         
-        # IMPORTANT: Coordinates from field detection are scaled by 2.0 (Matrix(2.0, 2.0))
-        # We need to scale them back to match the original PDF dimensions
-        SCALE_FACTOR = 2.0
+        # IMPORTANT: Enhanced detector renders pages at 3.0x scale for detection
+        # Scale coordinates back to match the original PDF dimensions
+        SCALE_FACTOR = 3.0
         
         # Group fields by page for easier processing
         fields_by_page = {}
@@ -1278,25 +1277,67 @@ def create_filled_pdf(input_path, output_path, fields):
             if page_num not in fields_by_page:
                 fields_by_page[page_num] = []
             fields_by_page[page_num].append(field)
+
+        # First, fill AcroForm widgets directly inside the original document
+        # Build per-page map of acroform field_name -> content
+        acro_content_by_page = {}
+        for page_num, page_fields in fields_by_page.items():
+            for f in page_fields:
+                field_id_str = str(f.get('id', ''))
+                if field_id_str.startswith('acroform_'):
+                    content = str(f.get('user_content', '')).strip()
+                    if not content:
+                        continue
+                    # Prefer explicit field name from context when available
+                    field_name = str(f.get('context', '')) or field_id_str.replace('acroform_', '')
+                    if page_num not in acro_content_by_page:
+                        acro_content_by_page[page_num] = {}
+                    acro_content_by_page[page_num][field_name] = content
+
+        # Apply acroform content
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            page_map = acro_content_by_page.get(page_num, {})
+            if not page_map:
+                continue
+            try:
+                for widget in page.widgets():
+                    name = getattr(widget, 'field_name', '') or ''
+                    if not name:
+                        continue
+                    if name in page_map:
+                        content = page_map[name]
+                        field_type_str = (getattr(widget, 'field_type_string', '') or '').lower()
+                        try:
+                            if field_type_str == 'checkbox':
+                                # Check if content indicates a checked state
+                                checked = str(content).strip().lower() in ['1', 'true', 'yes', 'checked', 'on']
+                                widget.set_checked(checked)
+                            elif field_type_str in ['radiobutton', 'radio']:
+                                # Best effort: mark as selected when content is truthy
+                                if str(content).strip():
+                                    widget.set_checked(True)
+                            else:
+                                widget.field_value = content
+                            widget.update()
+                        except Exception:
+                            # Fallback: ignore widget update failure
+                            pass
+            except Exception:
+                pass
         
         print(f"Processing {len(doc)} pages with {len(fields)} total fields")
         print(f"Fields by page: {[(p, len(f)) for p, f in fields_by_page.items()]}")
         
-        # Process each page
+        # Process each page (draw overlays for non-acro fields directly on original page)
         for page_num in range(len(doc)):
             page = doc[page_num]
-            
-            # Create a new page with same dimensions
-            new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)
-            
-            # Copy the original page content
-            new_page.show_pdf_page(page.rect, doc, page_num)
-            
+
             # Get fields for this page
             page_fields = fields_by_page.get(page_num, [])
             print(f"Page {page_num}: {len(page_fields)} fields to fill")
             
-            # Add filled content to the fields for this page
+            # Add filled content to the fields for this page (only for non-AcroForm fields)
             for field in page_fields:
                 try:
                     user_content = field.get('user_content', '').strip()
@@ -1308,6 +1349,10 @@ def create_filled_pdf(input_path, output_path, fields):
                     field_id = str(field.get('id', ''))
                     is_acroform = field_id.startswith('acroform_')
                     
+                    # Skip overlay for AcroForm - they were filled directly above
+                    if is_acroform:
+                        continue
+
                     # Get field coordinates safely
                     x_pos = field.get('x_position', field.get('x', 0))
                     y_pos = field.get('y_position', field.get('y', 0))
@@ -1354,30 +1399,29 @@ def create_filled_pdf(input_path, output_path, fields):
                             new_page.draw_circle((center_x, center_y), radius/2, color=(0, 0, 0), fill=(0, 0, 0))
                         
                     elif field_type == 'dropdown':
-                        # For dropdowns, show the selected option
-                        font_size = min(10, height * 0.7)  # Scale font to field height
-                        new_page.insert_text(
-                            (x + 2, y + height * 0.75),  # Position text baseline
+                        # For dropdowns, place text inside the field rectangle using a textbox
+                        font_size = max(10, min(14, height * 0.9))
+                        text_rect = fitz.Rect(x + 2, y + 2, x + width - 2, y + height - 2)
+                        page.insert_textbox(
+                            text_rect,
                             content,
                             fontsize=font_size,
                             color=(0, 0, 0),
-                            fontname="helv"
+                            fontname="helv",
+                            align=fitz.TEXT_ALIGN_LEFT
                         )
                         
                     else:
-                        # For text fields, insert the text normally
-                        font_size = min(11, height * 0.7)  # Scale font to field height
-                        
-                        # Calculate text position - align with baseline
-                        text_x = x + 2
-                        text_y = y + height * 0.75  # Position baseline at 75% of field height
-                        
-                        new_page.insert_text(
-                            (text_x, text_y),
+                        # For text fields, place content inside the rectangle using a textbox for reliable alignment
+                        font_size = max(10, min(14, height * 0.9))
+                        text_rect = fitz.Rect(x + 2, y + 2, x + width - 2, y + height - 2)
+                        page.insert_textbox(
+                            text_rect,
                             content,
                             fontsize=font_size,
                             color=(0, 0, 0),
-                            fontname="helv"
+                            fontname="helv",
+                            align=fitz.TEXT_ALIGN_LEFT
                         )
                         
                 except Exception as field_error:
@@ -1386,9 +1430,8 @@ def create_filled_pdf(input_path, output_path, fields):
                     traceback.print_exc()
                     continue
         
-        # Save the new document
-        new_doc.save(output_path)
-        new_doc.close()
+        # Save the updated original document
+        doc.save(output_path)
         doc.close()
         
         print(f"PDF saved successfully to {output_path}")

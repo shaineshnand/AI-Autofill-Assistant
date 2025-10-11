@@ -197,6 +197,12 @@ def fill_all_fields(request, doc_id):
         if not document:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
         
+        # Overwrite flag: when true, fill even fields that already have content
+        try:
+            overwrite = bool(request.data.get('overwrite', False))
+        except Exception:
+            overwrite = False
+
         # Get document context
         doc_context = {
             'document_type': 'form',
@@ -210,7 +216,7 @@ def fill_all_fields(request, doc_id):
         filled_fields = []
         
         for field in document['fields']:
-            if not field['user_content']:  # Only fill empty fields
+            if overwrite or not field['user_content']:
                 # Generate intelligent content based on field type and context
                 suggested_content = intelligent_filler.generate_field_content(field, doc_context)
                 

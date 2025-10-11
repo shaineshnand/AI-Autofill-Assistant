@@ -38,12 +38,24 @@ class TrainingStorage:
             })
     
     def _load_json(self, filepath: str) -> Any:
-        """Load JSON data from file"""
+        """Load JSON data from file (raw). Use typed loaders for safety."""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
-            return {} if 'documents' in filepath else []
+            return None
+
+    def _load_json_typed(self, filepath: str, default_value: Any) -> Any:
+        """Load JSON and coerce to the expected type; auto-repair if needed."""
+        data = self._load_json(filepath)
+        # If file missing/invalid or wrong type, repair with default
+        if data is None or not isinstance(data, type(default_value)):
+            data = default_value
+            try:
+                self._save_json(filepath, data)
+            except Exception:
+                pass
+        return data
     
     def _save_json(self, filepath: str, data: Any):
         """Save JSON data to file"""
@@ -53,7 +65,7 @@ class TrainingStorage:
     def save_document(self, doc_id: str, document_data: Dict[str, Any]) -> bool:
         """Save document data to persistent storage"""
         try:
-            documents = self._load_json(self.documents_file)
+            documents = self._load_json_typed(self.documents_file, {})
             documents[doc_id] = {
                 **document_data,
                 "saved_at": datetime.now().isoformat(),
@@ -62,7 +74,11 @@ class TrainingStorage:
             self._save_json(self.documents_file, documents)
             
             # Update stats
-            stats = self._load_json(self.training_stats_file)
+            stats = self._load_json_typed(self.training_stats_file, {
+                "total_samples": 0,
+                "last_training": None,
+                "document_count": 0
+            })
             stats["document_count"] = len(documents)
             self._save_json(self.training_stats_file, stats)
             
@@ -75,7 +91,7 @@ class TrainingStorage:
     def load_document(self, doc_id: str) -> Dict[str, Any]:
         """Load document data from persistent storage"""
         try:
-            documents = self._load_json(self.documents_file)
+            documents = self._load_json_typed(self.documents_file, {})
             return documents.get(doc_id, {})
         except Exception as e:
             print(f"Error loading document {doc_id}: {e}")
@@ -83,17 +99,21 @@ class TrainingStorage:
     
     def get_all_documents(self) -> Dict[str, Dict[str, Any]]:
         """Get all stored documents"""
-        return self._load_json(self.documents_file)
+        return self._load_json_typed(self.documents_file, {})
     
     def add_training_samples(self, samples: List[Dict[str, Any]]) -> bool:
         """Add training samples to persistent storage"""
         try:
-            existing_samples = self._load_json(self.training_samples_file)
+            existing_samples = self._load_json_typed(self.training_samples_file, [])
             existing_samples.extend(samples)
             self._save_json(self.training_samples_file, existing_samples)
             
             # Update stats
-            stats = self._load_json(self.training_stats_file)
+            stats = self._load_json_typed(self.training_stats_file, {
+                "total_samples": 0,
+                "last_training": None,
+                "document_count": 0
+            })
             stats["total_samples"] = len(existing_samples)
             stats["last_training"] = datetime.now().isoformat()
             self._save_json(self.training_stats_file, stats)
@@ -106,20 +126,37 @@ class TrainingStorage:
     
     def get_training_samples(self) -> List[Dict[str, Any]]:
         """Get all training samples"""
-        return self._load_json(self.training_samples_file)
+        return self._load_json_typed(self.training_samples_file, [])
     
     def get_training_stats(self) -> Dict[str, Any]:
         """Get training statistics"""
-        stats = self._load_json(self.training_stats_file)
-        documents = self._load_json(self.documents_file)
-        samples = self._load_json(self.training_samples_file)
+        stats = self._load_json_typed(self.training_stats_file, {
+            "total_samples": 0,
+            "last_training": None,
+            "document_count": 0
+        })
+        documents = self._load_json_typed(self.documents_file, {})
+        samples = self._load_json_typed(self.training_samples_file, [])
         
-        return {
+        # Ensure required keys exist
+        if not isinstance(stats, dict):
+            stats = {
+                "total_samples": 0,
+                "last_training": None,
+                "document_count": 0
+            }
+        stats.setdefault("total_samples", 0)
+        stats.setdefault("last_training", None)
+        stats.setdefault("document_count", 0)
+
+        result = {
             **stats,
             "documents_in_storage": len(documents),
             "document_ids": list(documents.keys()),
             "training_samples": len(samples)
         }
+
+        return result
     
     def clear_all_data(self):
         """Clear all stored data"""

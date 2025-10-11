@@ -95,6 +95,49 @@ class EnhancedFieldDetector:
             'enter your', 'fill in', 'provide'
         ]
 
+        # Tunable thresholds (defaults tightened to reduce false positives)
+        self.thresholds = {
+            # Generic blank-area checks
+            'blank_mean_intensity_min': 220.0,
+            'blank_std_intensity_max': 38.0,
+            'blank_dark_ratio_max': 0.05,
+
+            # Rectangular candidate validation
+            'rect_area_min': 3000,
+            'rect_area_max': 100000,
+            'rect_width_min': 70,
+            'rect_height_min': 24,
+            'rect_width_max_ratio': 0.8,   # fraction of image width
+            'rect_height_max_ratio': 0.3,  # fraction of image height
+            'rect_aspect_min': 2.2,
+            'rect_aspect_max': 25.0,
+            'rect_margin_min': 10,         # pixels from edges
+
+            # Box detection
+            'box_area_min': 500,
+            'box_area_max': 50000,
+            'box_width_min': 20,
+            'box_height_min': 15,
+            'box_width_max_ratio': 0.8,
+            'box_height_max_ratio': 0.3,
+            'box_aspect_min': 1.2,
+            'box_aspect_max': 15.0,
+            'box_mean_intensity_min': 180.0,
+
+            # Whitespace detection
+            'white_area_min': 6000,
+            'white_area_max': 20000,
+            'white_width_min': 50,
+            'white_height_min': 20,
+            'white_width_max_ratio': 0.7,
+            'white_height_max_ratio': 0.25,
+            'white_aspect_min': 3.0,
+            'white_aspect_max': 20.0,
+
+            # OCR/text-positioned detection
+            'ocr_min_confidence': 55
+        }
+
     def process_document(self, file_path: str) -> Dict:
         """Process document and detect form fields with enhanced algorithms"""
         try:
@@ -284,14 +327,15 @@ class EnhancedFieldDetector:
                             std_intensity = np.std(roi)
                             
                             # Form fields are typically mostly white with low variation
-                            if mean_intensity > 200 and std_intensity < 50:
+                            if (mean_intensity > self.thresholds['blank_mean_intensity_min'] and 
+                                std_intensity < self.thresholds['blank_std_intensity_max']):
                                 # Additional check: ensure no text content
                                 dark_pixels = np.sum(roi < 100)
                                 total_pixels = roi.size
                                 dark_ratio = dark_pixels / total_pixels
                                 
                                 # Only accept if very few dark pixels (mostly blank)
-                                if dark_ratio < 0.05:  # Less than 5% dark pixels
+                                if dark_ratio < self.thresholds['blank_dark_ratio_max']:
                                     field_type = self._classify_field_by_position(gray_image, x, y, w, h)
                                 
                                 field = FormField(
@@ -388,16 +432,16 @@ class EnhancedFieldDetector:
                     aspect_ratio = w / h if h > 0 else 0
                     
                     # Filter for reasonable form field sizes
-                    if (500 < area < 50000 and 
-                        20 < w < image_width * 0.8 and 
-                        15 < h < image_height * 0.3 and
-                        1.2 < aspect_ratio < 15):
+                    if (self.thresholds['box_area_min'] < area < self.thresholds['box_area_max'] and 
+                        self.thresholds['box_width_min'] < w < image_width * self.thresholds['box_width_max_ratio'] and 
+                        self.thresholds['box_height_min'] < h < image_height * self.thresholds['box_height_max_ratio'] and
+                        self.thresholds['box_aspect_min'] < aspect_ratio < self.thresholds['box_aspect_max']):
                         
                         # Check if it's mostly white (form field)
                         roi = gray_image[y:y+h, x:x+w]
                         if roi.size > 0:
                             mean_intensity = np.mean(roi)
-                            if mean_intensity > 180:
+                            if mean_intensity > self.thresholds['box_mean_intensity_min']:
                                 field_type = self._classify_field_by_position(gray_image, x, y, w, h, "")
                                 
                                 field = FormField(
@@ -442,29 +486,31 @@ class EnhancedFieldDetector:
                 aspect_ratio = w / h if h > 0 else 0
                 
                 # Look for reasonably sized white spaces
-                if (2000 < area < 20000 and 
-                    50 < w < image_width * 0.7 and 
-                    20 < h < image_height * 0.25 and
-                    2 < aspect_ratio < 20):
+                if (self.thresholds['white_area_min'] < area < self.thresholds['white_area_max'] and 
+                    self.thresholds['white_width_min'] < w < image_width * self.thresholds['white_width_max_ratio'] and 
+                    self.thresholds['white_height_min'] < h < image_height * self.thresholds['white_height_max_ratio'] and
+                    self.thresholds['white_aspect_min'] < aspect_ratio < self.thresholds['white_aspect_max']):
                     
                     # Check surrounding area for text (field labels)
                     context_text = self._extract_context_text(gray_image, x, y, w, h)
                     if context_text:
                         field_type = self._classify_text_to_field_type(context_text)
                         
-                        field = FormField(
-                            id=f"whitespace_p{page_num}_{i}",
-                            field_type=field_type,
-                            x_position=x,
-                            y_position=y,
-                            width=w,
-                            height=h,
-                            page_number=page_num,
-                            context=context_text.lower(),
-                            confidence=0.6,
-                            detection_method="whitespace"
-                        )
-                        fields.append(field)
+                        # Only keep whitespace fields that resolve to a known type
+                        if field_type != 'text':
+                            field = FormField(
+                                id=f"whitespace_p{page_num}_{i}",
+                                field_type=field_type,
+                                x_position=x,
+                                y_position=y,
+                                width=w,
+                                height=h,
+                                page_number=page_num,
+                                context=context_text.lower(),
+                                confidence=0.6,
+                                detection_method="whitespace"
+                            )
+                            fields.append(field)
             
             return fields
             
@@ -487,11 +533,12 @@ class EnhancedFieldDetector:
                 detected_text = ocr_data['text'][i].strip().lower()
                 conf = int(ocr_data['conf'][i])
                 
-                if conf > 30 and detected_text:
+                if conf > self.thresholds['ocr_min_confidence'] and detected_text:
                     # Check if this text indicates a form field
                     field_type = self._classify_text_to_field_type(detected_text)
                     
-                    if field_type != 'text' or any(indicator in detected_text for indicator in self.field_indicators):
+                    # Only create fields for recognized types; skip generic 'text'
+                    if field_type != 'text':
                         # Get text position
                         text_x = ocr_data['left'][i]
                         text_y = ocr_data['top'][i]
@@ -535,23 +582,23 @@ class EnhancedFieldDetector:
                            aspect_ratio: float, image_width: int, image_height: int) -> bool:
         """Enhanced validation for form field candidates"""
         # Size constraints
-        if not (1000 < area < 100000):
+        if not (self.thresholds['rect_area_min'] < area < self.thresholds['rect_area_max']):
             return False
         
         # Dimension constraints
-        if not (30 < w < image_width * 0.8):
+        if not (self.thresholds['rect_width_min'] < w < image_width * self.thresholds['rect_width_max_ratio']):
             return False
-        if not (15 < h < image_height * 0.3):
+        if not (self.thresholds['rect_height_min'] < h < image_height * self.thresholds['rect_height_max_ratio']):
             return False
         
         # Aspect ratio constraints (form fields are usually wider than tall)
-        if not (1.5 < aspect_ratio < 25):
+        if not (self.thresholds['rect_aspect_min'] < aspect_ratio < self.thresholds['rect_aspect_max']):
             return False
         
         # Position constraints (not too close to edges)
-        if x < 10 or y < 10:
+        if x < self.thresholds['rect_margin_min'] or y < self.thresholds['rect_margin_min']:
             return False
-        if x + w > image_width - 10 or y + h > image_height - 10:
+        if x + w > image_width - self.thresholds['rect_margin_min'] or y + h > image_height - self.thresholds['rect_margin_min']:
             return False
         
         return True
@@ -603,9 +650,9 @@ class EnhancedFieldDetector:
             # 1. High average intensity (bright)
             # 2. Low standard deviation (uniform)
             # 3. Few dark pixels (not much text)
-            return (mean_intensity > 200 and 
-                   std_intensity < 40 and 
-                   dark_ratio < 0.1)  # Less than 10% dark pixels
+            return (mean_intensity > self.thresholds['blank_mean_intensity_min'] and 
+                   std_intensity < self.thresholds['blank_std_intensity_max'] and 
+                   dark_ratio < self.thresholds['blank_dark_ratio_max'])
             
         except Exception as e:
             print(f"Error checking if area is blank: {e}")
@@ -722,7 +769,8 @@ class EnhancedFieldDetector:
                 # Check for field patterns
                 field_type = self._classify_text_to_field_type(line_lower)
                 
-                if field_type != 'text' or any(indicator in line_lower for indicator in self.field_indicators):
+                # Only create fields for recognized types; skip generic 'text'
+                if field_type != 'text':
                     # Create virtual field based on line position
                     y_pos = 50 + (i * 40)  # Approximate positioning
                     
