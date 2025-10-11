@@ -9,6 +9,7 @@ urlpatterns = [
     path('<uuid:doc_id>/', views.get_document, name='get_document'),
     path('<uuid:doc_id>/preview/', views.preview_document, name='preview_document'),
     path('<uuid:doc_id>/regenerate/', views.regenerate_document, name='regenerate_document'),
+    path('<uuid:doc_id>/make-fillable/', views.make_fillable_pdf, name='make_fillable_pdf'),
     path('<uuid:doc_id>/update-field/', views.update_field, name='update_field'),
     path('<uuid:doc_id>/delete-field/', views.delete_field, name='delete_field'),
     path('<uuid:doc_id>/generate-pdf/', views.generate_pdf, name='generate_pdf'),

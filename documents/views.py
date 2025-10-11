@@ -772,7 +772,7 @@ def upload_document(request):
         # Create field records in memory
         for i, space in enumerate(result['blank_spaces']):
             field = {
-                'id': i,
+                'id': str(space.get('id', i)),
                 'field_type': space.get('field_type', space.get('context', 'text')),
                 'x_position': space.get('x_position', space.get('x', 0)),
                 'y_position': space.get('y_position', space.get('y', 0)),
@@ -787,6 +787,20 @@ def upload_document(request):
             }
             document['fields'].append(field)
         
+        # Automatically create an interactive fillable PDF for PDF uploads
+        try:
+            if file_ext == '.pdf':
+                processed_dir = os.path.join(settings.MEDIA_ROOT, 'processed')
+                os.makedirs(processed_dir, exist_ok=True)
+                fillable_filename = f"fillable_{os.path.basename(filepath)}"
+                fillable_output_path = os.path.join(processed_dir, fillable_filename)
+                if create_fillable_pdf(filepath, fillable_output_path, document['fields']):
+                    document['fillable_pdf'] = f"/media/processed/{fillable_filename}"
+                    document['fillable_pdf_path'] = fillable_output_path
+        except Exception as _auto_fillable_err:
+            # Non-fatal: continue without blocking upload
+            print(f"Auto fillable PDF generation failed: {_auto_fillable_err}")
+
         # Store in memory
         documents_storage[str(doc_id)] = document
         
@@ -912,48 +926,26 @@ def generate_pdf(request, doc_id):
         if not document:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        # Create PDF
-        pdf_filename = f"filled_{doc_id}.pdf"
+        # Prefer the auto-generated fillable PDF as the base
+        base_input = document.get('fillable_pdf_path') or document['file_path']
         processed_path = os.path.join(settings.MEDIA_ROOT, 'processed')
         os.makedirs(processed_path, exist_ok=True)
-        pdf_path = os.path.join(processed_path, pdf_filename)
+        output_filename = f"filled_{doc_id}.pdf"
+        pdf_path = os.path.join(processed_path, output_filename)
+
+        # Fill either the fillable base (widgets) or draw overlays when needed
+        success = create_filled_pdf(base_input, pdf_path, document['fields'])
+        if not success and base_input != document['file_path']:
+            # Fallback to original file if widget fill failed for any reason
+            success = create_filled_pdf(document['file_path'], pdf_path, document['fields'])
         
-        # Create PDF with filled information
-        c = canvas.Canvas(pdf_path, pagesize=letter)
-        width, height = letter
-        
-        # Title
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(100, height - 100, f"Filled Document: {document['filename']}")
-        
-        # Document information
-        c.setFont("Helvetica", 12)
-        y_position = height - 150
-        
-        c.drawString(100, y_position, f"Document ID: {doc_id}")
-        y_position -= 30
-        c.drawString(100, y_position, f"Uploaded: {document['uploaded_at']}")
-        y_position -= 30
-        c.drawString(100, y_position, f"Total Fields: {document['total_blanks']}")
-        y_position -= 50
-        
-        # Filled fields
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(100, y_position, "Filled Fields:")
-        y_position -= 30
-        
-        c.setFont("Helvetica", 12)
-        for field in document['fields']:
-            if field['user_content']:
-                c.drawString(120, y_position, f"Field {field['id']} ({field['context']}): {field['user_content']}")
-                y_position -= 25
-        
-        c.save()
+        if not success:
+            return Response({'error': 'Failed to generate filled PDF'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return Response({
             'success': True,
             'pdf_path': pdf_path,
-            'download_url': f'/api/documents/download/{doc_id}'
+            'download_url': f"/api/documents/download/{doc_id}"
         })
         
     except Exception as e:
@@ -1213,8 +1205,11 @@ def regenerate_document(request, doc_id):
         file_ext = os.path.splitext(file_path)[1].lower()
         print(f"File extension: {file_ext}")
         
+        # Prefer the auto-generated fillable PDF as base when available
+        base_input = document.get('fillable_pdf_path') or file_path
+        
         # Create output filename
-        output_filename = f"filled_{os.path.basename(file_path)}"
+        output_filename = f"filled_{os.path.basename(base_input)}"
         output_path = os.path.join(settings.MEDIA_ROOT, 'processed', output_filename)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
@@ -1224,7 +1219,14 @@ def regenerate_document(request, doc_id):
         if file_ext == '.pdf':
             # For PDFs, create a new PDF with filled content
             print("Creating filled PDF...")
-            success = create_filled_pdf(file_path, output_path, document['fields'])
+            success = create_filled_pdf(base_input, output_path, document['fields'])
+            if not success and base_input != file_path:
+                # Fallback to original file if widget fill fails
+                success = create_filled_pdf(file_path, output_path, document['fields'])
+        elif file_ext == '.pdf_fillable':
+            # Special route (if we ever mark files for interactive conversion)
+            print("Creating interactive fillable PDF...")
+            success = create_fillable_pdf(file_path, output_path, document['fields'])
         elif file_ext in ['.doc', '.docx']:
             # For Word documents, create a new Word document with filled content
             print("Creating filled Word document...")
@@ -1354,10 +1356,10 @@ def create_filled_pdf(input_path, output_path, fields):
                         continue
 
                     # Get field coordinates safely
-                    x_pos = field.get('x_position', field.get('x', 0))
-                    y_pos = field.get('y_position', field.get('y', 0))
-                    field_width = field.get('width', 100)
-                    field_height = field.get('height', 25)
+                    x_pos = float(field.get('x_position', field.get('x', 0)))
+                    y_pos = float(field.get('y_position', field.get('y', 0)))
+                    field_width = float(field.get('width', 100))
+                    field_height = float(field.get('height', 25))
                     
                     if is_acroform:
                         # AcroForm fields are already in PDF coordinates
@@ -1439,6 +1441,82 @@ def create_filled_pdf(input_path, output_path, fields):
         
     except Exception as e:
         print(f"Error creating filled PDF: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def create_fillable_pdf(input_path, output_path, fields):
+    """Create an interactive (AcroForm) fillable PDF based on detected fields.
+    - Adds text and checkbox widgets for non-Acro fields using page coordinates.
+    - Keeps existing AcroForm fields untouched.
+    """
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(input_path)
+
+        SCALE_FACTOR = 3.0  # detection was done at 3x scale
+
+        # Group fields by page
+        fields_by_page = {}
+        for field in fields:
+            page_num = field.get('page', 0)
+            fields_by_page.setdefault(page_num, []).append(field)
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            page_fields = fields_by_page.get(page_num, [])
+
+            for f in page_fields:
+                try:
+                    field_id = str(f.get('id', ''))
+                    # Skip if it's already an AcroForm field
+                    if field_id.startswith('acroform_'):
+                        continue
+
+                    field_type = str(f.get('field_type', 'text')).lower()
+                    x = float(f.get('x_position', f.get('x', 0))) / SCALE_FACTOR
+                    y = float(f.get('y_position', f.get('y', 0))) / SCALE_FACTOR
+                    w = float(f.get('width', 100)) / SCALE_FACTOR
+                    h = float(f.get('height', 25)) / SCALE_FACTOR
+                    rect = fitz.Rect(x, y, x + w, y + h)
+
+                    # Generate field name to keep them unique and readable
+                    base_name = str(f.get('context', field_type) or field_type).replace(' ', '_')[:32]
+                    field_name = f"auto_{base_name}_{page_num}_{field_id}"
+
+                    # Choose widget type (fallback to text when API does not support others)
+                    widget_type = fitz.PDF_WIDGET_TYPE_TEXT
+                    if field_type == 'checkbox':
+                        widget_type = fitz.PDF_WIDGET_TYPE_CHECKBOX
+
+                    # Check API availability
+                    if hasattr(page, 'add_widget'):
+                        widget = page.add_widget(
+                            rect=rect,
+                            field_name=field_name,
+                            field_type=widget_type,
+                            text=f.get('user_content', ''),
+                            # Appearance tweaks
+                            border_color=(0, 0, 0),
+                            fill_color=None
+                        )
+                        if widget_type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
+                            # Default unchecked; leave content to user
+                            widget.set_checked(False)
+                        widget.update()
+                    else:
+                        # Fallback: draw a thin rectangle to indicate input area (non-interactive)
+                        page.draw_rect(rect, color=(0, 0, 0), width=0.5)
+                except Exception:
+                    # Continue even if a single widget fails
+                    continue
+
+        # Save to output
+        doc.save(output_path)
+        doc.close()
+        return True
+    except Exception as e:
+        print(f"Error creating fillable PDF: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -1629,3 +1707,32 @@ def create_filled_text(input_path, output_path, fields):
     except Exception as e:
         print(f"Error creating filled text: {e}")
         return False
+
+@api_view(['POST'])
+def make_fillable_pdf(request, doc_id):
+    """Convert the uploaded PDF into an Interactive fillable PDF by adding widgets for detected fields."""
+    try:
+        document = documents_storage.get(str(doc_id))
+        if not document:
+            return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        input_path = document['file_path']
+        if not os.path.exists(input_path):
+            return Response({'error': 'Original file not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        output_filename = f"fillable_{os.path.basename(input_path)}"
+        output_path = os.path.join(settings.MEDIA_ROOT, 'processed', output_filename)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        success = create_fillable_pdf(input_path, output_path, document['fields'])
+        if success:
+            return Response({
+                'success': True,
+                'output_file': output_filename,
+                'download_url': f'/media/processed/{output_filename}',
+                'message': 'Interactive fillable PDF created'
+            })
+        else:
+            return Response({'error': 'Failed to create fillable PDF'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

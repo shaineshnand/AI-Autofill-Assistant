@@ -216,14 +216,14 @@ def fill_all_fields(request, doc_id):
         filled_fields = []
         
         for field in document['fields']:
-            if overwrite or not field['user_content']:
+            if overwrite or not field.get('user_content'):
                 # Generate intelligent content based on field type and context
                 suggested_content = intelligent_filler.generate_field_content(field, doc_context)
                 
                 filled_fields.append({
-                    'id': field['id'],
+                    'id': field.get('id'),
                     'content': suggested_content,
-                    'type': field['field_type']
+                    'type': field.get('field_type')
                 })
                 
                 # Update the field in the document
