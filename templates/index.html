@@ -24,8 +24,13 @@
                     <button class="btn btn-info preview-btn" id="previewBtn">
                         <i class="fas fa-eye"></i> Preview Document
                     </button>
+                    {% if document.fillable_pdf %}
+                    <a href="{{ document.fillable_pdf }}" class="btn btn-secondary" download="fillable_{{ document.filename }}">
+                        <i class="fas fa-download"></i> Download Fillable PDF
+                    </a>
+                    {% endif %}
                     <button class="btn btn-warning regenerate-btn" id="regenerateBtn">
-                        <i class="fas fa-redo"></i> Generate Original Form with Answers
+                        <i class="fas fa-redo"></i> Generate & Download Filled PDF
                     </button>
                     <button class="btn btn-success train-btn" id="trainBtn">
                         <i class="fas fa-graduation-cap"></i> Train System
@@ -54,11 +59,9 @@
                         <button class="btn btn-danger" id="deleteSelectedBtn" style="display: none;" title="Delete selected fields">
                             <i class="fas fa-trash-alt"></i> Delete Selected (<span id="selectedCount">0</span>)
                         </button>
-                        {% if ollama_status.running %}
-                            <button class="btn btn-success fill-all-btn" id="fillAllBtn">
-                                <i class="fas fa-magic"></i> AI Fill All Fields
-                            </button>
-                        {% endif %}
+                        <button class="btn btn-success fill-all-btn" id="fillAllBtn">
+                            <i class="fas fa-magic"></i> AI Fill All Fields
+                        </button>
                     </div>
                 </div>
                 {% for field in document.fields %}
@@ -70,11 +73,9 @@
                                 <span class="field-context">{{ field.context }}</span>
                             </div>
                             <div class="field-actions">
-                                {% if ollama_status.running %}
-                                    <button class="btn btn-secondary ai-suggest-btn" data-field-id="{{ field.id }}">
-                                        <i class="fas fa-brain"></i> AI Suggest
-                                    </button>
-                                {% endif %}
+                                <button class="btn btn-secondary ai-suggest-btn" data-field-id="{{ field.id }}">
+                                    <i class="fas fa-brain"></i> AI Suggest
+                                </button>
                                 <button class="btn btn-danger delete-field-btn" data-field-id="{{ field.id }}" title="Delete this field">
                                     <i class="fas fa-trash"></i> Delete
                                 </button>

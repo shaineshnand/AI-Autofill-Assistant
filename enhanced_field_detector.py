@@ -95,6 +95,49 @@ class EnhancedFieldDetector:
             'enter your', 'fill in', 'provide'
         ]
 
+        # Tunable thresholds (defaults tightened to reduce false positives)
+        self.thresholds = {
+            # Generic blank-area checks
+            'blank_mean_intensity_min': 220.0,
+            'blank_std_intensity_max': 38.0,
+            'blank_dark_ratio_max': 0.05,
+
+            # Rectangular candidate validation
+            'rect_area_min': 3000,
+            'rect_area_max': 100000,
+            'rect_width_min': 70,
+            'rect_height_min': 24,
+            'rect_width_max_ratio': 0.8,   # fraction of image width
+            'rect_height_max_ratio': 0.3,  # fraction of image height
+            'rect_aspect_min': 2.2,
+            'rect_aspect_max': 25.0,
+            'rect_margin_min': 10,         # pixels from edges
+
+            # Box detection
+            'box_area_min': 500,
+            'box_area_max': 50000,
+            'box_width_min': 20,
+            'box_height_min': 15,
+            'box_width_max_ratio': 0.8,
+            'box_height_max_ratio': 0.3,
+            'box_aspect_min': 1.2,
+            'box_aspect_max': 15.0,
+            'box_mean_intensity_min': 180.0,
+
+            # Whitespace detection
+            'white_area_min': 6000,
+            'white_area_max': 20000,
+            'white_width_min': 50,
+            'white_height_min': 20,
+            'white_width_max_ratio': 0.7,
+            'white_height_max_ratio': 0.25,
+            'white_aspect_min': 3.0,
+            'white_aspect_max': 20.0,
+
+            # OCR/text-positioned detection
+            'ocr_min_confidence': 55
+        }
+
     def process_document(self, file_path: str) -> Dict:
         """Process document and detect form fields with enhanced algorithms"""
         try:
@@ -144,14 +187,13 @@ class EnhancedFieldDetector:
                 all_fields.extend(acroform_fields)
                 print(f"    Found {len(acroform_fields)} AcroForm fields")
                 
-                # SMART DETECTION: If AcroForm fields exist, ONLY use those (skip visual detection)
-                # AcroForm = real PDF form fields, visual detection often creates false positives
+                # SMART DETECTION: If AcroForm fields exist, use them but ALSO detect dotted lines
+                # AcroForm = real PDF form fields, but dotted lines need special detection
                 if len(acroform_fields) > 0:
-                    print(f"    ✓ AcroForm fields detected - skipping visual/text detection (smart mode)")
-                    continue  # Skip to next page, don't run visual detection
+                    print(f"    [OK] AcroForm fields detected - using AcroForm + dotted line detection")
                 
-                # Only run visual/text detection if NO AcroForm fields found
-                print(f"    No AcroForm fields - running visual detection")
+                # Always run dotted line detection (even with AcroForm fields)
+                print(f"    Running dotted line detection for fillable fields")
                 
                 # Method 2: Convert page to high-quality image
                 mat = fitz.Matrix(3.0, 3.0)  # Higher resolution for better detection
@@ -177,6 +219,18 @@ class EnhancedFieldDetector:
                 layout_fields = self._analyze_layout_fields(gray, page_text, page_num)
                 all_fields.extend(layout_fields)
                 print(f"    Found {len(layout_fields)} layout fields")
+                
+                # Method 6: Dotted line detection (for fillable fields)
+                # Use scale=1.0 to get exact PDF coordinates (no scaling)
+                dotted_fields = self._detect_dotted_leader_fields_pdf(page, page_num, scale=1.0)
+                if dotted_fields:
+                    print(f"    PDF dotted detection found {len(dotted_fields)} fields")
+                else:
+                    print(f"    PDF dotted detection failed, trying text-based fallback")
+                    # Fallback to text-based dotted detection
+                    dotted_fields = self._detect_dotted_leader_fields(page_text, gray.shape, page_num)
+                    print(f"    Text-based dotted detection found {len(dotted_fields)} fields")
+                all_fields.extend(dotted_fields)
             
             # Comprehensive deduplication and merging
             all_fields = self._merge_and_deduplicate_enhanced(all_fields)
@@ -284,14 +338,15 @@ class EnhancedFieldDetector:
                             std_intensity = np.std(roi)
                             
                             # Form fields are typically mostly white with low variation
-                            if mean_intensity > 200 and std_intensity < 50:
+                            if (mean_intensity > self.thresholds['blank_mean_intensity_min'] and 
+                                std_intensity < self.thresholds['blank_std_intensity_max']):
                                 # Additional check: ensure no text content
                                 dark_pixels = np.sum(roi < 100)
                                 total_pixels = roi.size
                                 dark_ratio = dark_pixels / total_pixels
                                 
                                 # Only accept if very few dark pixels (mostly blank)
-                                if dark_ratio < 0.05:  # Less than 5% dark pixels
+                                if dark_ratio < self.thresholds['blank_dark_ratio_max']:
                                     field_type = self._classify_field_by_position(gray_image, x, y, w, h)
                                 
                                 field = FormField(
@@ -388,16 +443,16 @@ class EnhancedFieldDetector:
                     aspect_ratio = w / h if h > 0 else 0
                     
                     # Filter for reasonable form field sizes
-                    if (500 < area < 50000 and 
-                        20 < w < image_width * 0.8 and 
-                        15 < h < image_height * 0.3 and
-                        1.2 < aspect_ratio < 15):
+                    if (self.thresholds['box_area_min'] < area < self.thresholds['box_area_max'] and 
+                        self.thresholds['box_width_min'] < w < image_width * self.thresholds['box_width_max_ratio'] and 
+                        self.thresholds['box_height_min'] < h < image_height * self.thresholds['box_height_max_ratio'] and
+                        self.thresholds['box_aspect_min'] < aspect_ratio < self.thresholds['box_aspect_max']):
                         
                         # Check if it's mostly white (form field)
                         roi = gray_image[y:y+h, x:x+w]
                         if roi.size > 0:
                             mean_intensity = np.mean(roi)
-                            if mean_intensity > 180:
+                            if mean_intensity > self.thresholds['box_mean_intensity_min']:
                                 field_type = self._classify_field_by_position(gray_image, x, y, w, h, "")
                                 
                                 field = FormField(
@@ -442,29 +497,31 @@ class EnhancedFieldDetector:
                 aspect_ratio = w / h if h > 0 else 0
                 
                 # Look for reasonably sized white spaces
-                if (2000 < area < 20000 and 
-                    50 < w < image_width * 0.7 and 
-                    20 < h < image_height * 0.25 and
-                    2 < aspect_ratio < 20):
+                if (self.thresholds['white_area_min'] < area < self.thresholds['white_area_max'] and 
+                    self.thresholds['white_width_min'] < w < image_width * self.thresholds['white_width_max_ratio'] and 
+                    self.thresholds['white_height_min'] < h < image_height * self.thresholds['white_height_max_ratio'] and
+                    self.thresholds['white_aspect_min'] < aspect_ratio < self.thresholds['white_aspect_max']):
                     
                     # Check surrounding area for text (field labels)
                     context_text = self._extract_context_text(gray_image, x, y, w, h)
                     if context_text:
                         field_type = self._classify_text_to_field_type(context_text)
                         
-                        field = FormField(
-                            id=f"whitespace_p{page_num}_{i}",
-                            field_type=field_type,
-                            x_position=x,
-                            y_position=y,
-                            width=w,
-                            height=h,
-                            page_number=page_num,
-                            context=context_text.lower(),
-                            confidence=0.6,
-                            detection_method="whitespace"
-                        )
-                        fields.append(field)
+                        # Only keep whitespace fields that resolve to a known type
+                        if field_type != 'text':
+                            field = FormField(
+                                id=f"whitespace_p{page_num}_{i}",
+                                field_type=field_type,
+                                x_position=x,
+                                y_position=y,
+                                width=w,
+                                height=h,
+                                page_number=page_num,
+                                context=context_text.lower(),
+                                confidence=0.6,
+                                detection_method="whitespace"
+                            )
+                            fields.append(field)
             
             return fields
             
@@ -487,11 +544,12 @@ class EnhancedFieldDetector:
                 detected_text = ocr_data['text'][i].strip().lower()
                 conf = int(ocr_data['conf'][i])
                 
-                if conf > 30 and detected_text:
+                if conf > self.thresholds['ocr_min_confidence'] and detected_text:
                     # Check if this text indicates a form field
                     field_type = self._classify_text_to_field_type(detected_text)
                     
-                    if field_type != 'text' or any(indicator in detected_text for indicator in self.field_indicators):
+                    # Only create fields for recognized types; skip generic 'text'
+                    if field_type != 'text':
                         # Get text position
                         text_x = ocr_data['left'][i]
                         text_y = ocr_data['top'][i]
@@ -535,23 +593,23 @@ class EnhancedFieldDetector:
                            aspect_ratio: float, image_width: int, image_height: int) -> bool:
         """Enhanced validation for form field candidates"""
         # Size constraints
-        if not (1000 < area < 100000):
+        if not (self.thresholds['rect_area_min'] < area < self.thresholds['rect_area_max']):
             return False
         
         # Dimension constraints
-        if not (30 < w < image_width * 0.8):
+        if not (self.thresholds['rect_width_min'] < w < image_width * self.thresholds['rect_width_max_ratio']):
             return False
-        if not (15 < h < image_height * 0.3):
+        if not (self.thresholds['rect_height_min'] < h < image_height * self.thresholds['rect_height_max_ratio']):
             return False
         
         # Aspect ratio constraints (form fields are usually wider than tall)
-        if not (1.5 < aspect_ratio < 25):
+        if not (self.thresholds['rect_aspect_min'] < aspect_ratio < self.thresholds['rect_aspect_max']):
             return False
         
         # Position constraints (not too close to edges)
-        if x < 10 or y < 10:
+        if x < self.thresholds['rect_margin_min'] or y < self.thresholds['rect_margin_min']:
             return False
-        if x + w > image_width - 10 or y + h > image_height - 10:
+        if x + w > image_width - self.thresholds['rect_margin_min'] or y + h > image_height - self.thresholds['rect_margin_min']:
             return False
         
         return True
@@ -603,9 +661,9 @@ class EnhancedFieldDetector:
             # 1. High average intensity (bright)
             # 2. Low standard deviation (uniform)
             # 3. Few dark pixels (not much text)
-            return (mean_intensity > 200 and 
-                   std_intensity < 40 and 
-                   dark_ratio < 0.1)  # Less than 10% dark pixels
+            return (mean_intensity > self.thresholds['blank_mean_intensity_min'] and 
+                   std_intensity < self.thresholds['blank_std_intensity_max'] and 
+                   dark_ratio < self.thresholds['blank_dark_ratio_max'])
             
         except Exception as e:
             print(f"Error checking if area is blank: {e}")
@@ -722,7 +780,8 @@ class EnhancedFieldDetector:
                 # Check for field patterns
                 field_type = self._classify_text_to_field_type(line_lower)
                 
-                if field_type != 'text' or any(indicator in line_lower for indicator in self.field_indicators):
+                # Only create fields for recognized types; skip generic 'text'
+                if field_type != 'text':
                     # Create virtual field based on line position
                     y_pos = 50 + (i * 40)  # Approximate positioning
                     
@@ -860,6 +919,281 @@ class EnhancedFieldDetector:
         except Exception as e:
             print(f"Error processing text document: {e}")
             return {'extracted_text': '', 'fields': [], 'total_fields': 0, 'error': str(e)}
+
+    def _detect_dotted_leader_fields(self, page_text: str, image_shape: Tuple, page_num: int = 0) -> List[FormField]:
+        """Detect dotted leader placeholders like sequences of '.' or '…' in text and
+        estimate input rectangles at those positions. Coordinates are in 3x pixel space.
+        """
+        fields: List[FormField] = []
+        try:
+            if not page_text:
+                return fields
+
+            lines = page_text.split('\n')
+            img_h = image_shape[0] if isinstance(image_shape, tuple) and len(image_shape) >= 1 else 2400
+            base_y = 50
+            line_height = 30
+
+            # Match various dotted line patterns including Unicode characters and underscores
+            # This covers: ..., ……, ……………, ______, _____, etc.
+            dotted_pattern = re.compile(r'(?:\.{3,}|…{2,}|_{3,}|-{3,})')
+            field_id_counter = 0
+
+            for line_idx, raw_line in enumerate(lines):
+                line = raw_line.rstrip()
+                if not line or ('.' not in line and '…' not in line and '_' not in line and '-' not in line):
+                    continue
+
+                for match in dotted_pattern.finditer(line):
+                    start_pos = match.start()
+                    end_pos = match.end()
+                    run_text = line[start_pos:end_pos]
+
+                    # Context
+                    context_before = line[max(0, start_pos-40):start_pos]
+                    context_after = line[end_pos:min(len(line), end_pos+40)]
+                    combined_context = (context_before + ' ' + context_after).lower()
+
+                    # Type guess
+                    if 'day' in combined_context and 'month' not in combined_context:
+                        field_type = 'day'
+                        est_width = 80
+                    elif 'month' in combined_context:
+                        field_type = 'month'
+                        est_width = 140
+                    elif 'year' in combined_context or '20' in combined_context:
+                        field_type = 'year'
+                        est_width = 100
+                    elif any(k in combined_context for k in ['employer', 'employee', 'company']):
+                        field_type = 'name'
+                        est_width = 260
+                    else:
+                        field_type = 'text'
+                        est_width = 200
+
+                    # Coordinate estimate from character positions
+                    # Use more accurate estimation based on actual text layout
+                    x_est = 50 + max(0, start_pos) * 8  # Increased character width for better accuracy
+                    y_est = base_y + line_idx * line_height
+                    
+                    # Add some randomness to avoid overlapping widgets
+                    x_est += (field_id_counter % 3) * 2
+                    width_est = max(80, min(est_width, 400))
+                    height_est = 25
+                    y_est = min(max(0, y_est), max(0, img_h - height_est))
+
+                    field = FormField(
+                        id=f"dots_field_p{page_num}_{field_id_counter}",
+                        field_type=field_type,
+                        x_position=x_est,
+                        y_position=y_est,
+                        width=width_est,
+                        height=height_est,
+                        page_number=page_num,
+                        context=f"{context_before} [{run_text}] {context_after}"[:160],
+                        confidence=0.85,
+                        detection_method="text_based_dotted_lines"
+                    )
+                    field.page = page_num
+                    # Store exact coordinates for widget creation
+                    field.x1 = x_est
+                    field.y1 = y_est
+                    field.x2 = x_est + width_est
+                    field.y2 = y_est + height_est
+                    fields.append(field)
+                    field_id_counter += 1
+
+            return fields
+        except Exception as e:
+            print(f"Error in dotted leader detection: {e}")
+            return fields
+
+    def _detect_dotted_leader_fields_pdf(self, page, page_num: int, scale: float = 3.0) -> List[FormField]:
+        """Detect dotted leader placeholders using PDF raw text positions for accurate boxes.
+
+        We scan spans and search for sequences of '.' or '…', then map their bbox to a field rect
+        with a small height and a reasonable width based on run length.
+        Returned coordinates are scaled by 'scale' to match image-space used downstream.
+        """
+        fields: List[FormField] = []
+        try:
+            import re
+            # Get raw text dict for precise positioning
+            text_dict = page.get_text('rawdict')
+            if not text_dict or 'blocks' not in text_dict:
+                return fields
+
+            # Match various dotted line patterns including Unicode characters and underscores
+            # This covers: ..., ……, ……………, ______, _____, etc.
+            pattern = re.compile(r'(?:\.{3,}|…{2,}|_{3,}|-{3,})')
+            field_id = 0
+            print(f"    Scanning PDF text for dotted patterns...")
+            
+            # Debug: Show all text being scanned
+            all_text = page.get_text()
+            print(f"    PDF text content: '{all_text[:200]}...'")
+            
+            # Count dots and ellipsis in the text
+            dot_count = all_text.count('.')
+            ellipsis_count = all_text.count('…')
+            print(f"    Found {dot_count} dots and {ellipsis_count} ellipsis characters")
+
+            for block in text_dict['blocks']:
+                if 'lines' not in block:
+                    continue
+                
+                for line in block['lines']:
+                    if 'spans' not in line:
+                        continue
+                    
+                    # Build text from spans and track character positions
+                    built = ""
+                    char_positions = []
+                    for span in line['spans']:
+                        if 'text' not in span or 'bbox' not in span:
+                            continue
+                        t = span['text']
+                        bbox = span['bbox']
+                        if not t or not bbox:
+                            continue
+                        
+                        # Approximate per-character width
+                        if len(t) > 0:
+                            per_char = (bbox[2] - bbox[0]) / len(t)
+                        else:
+                            per_char = 8  # fallback
+                        
+                        # Map each character to its approximate position
+                        cx = bbox[0]
+                        for char in t:
+                            char_positions.append((cx, bbox[1], bbox[2], bbox[3]))
+                            cx += per_char
+                        built += t
+                    if not built:
+                        continue
+
+                    # Search dotted runs within built - more lenient approach
+                    if built.strip():
+                        # Check for any dotted patterns (more lenient matching)
+                        has_dots = any(char in built for char in ['.', '…', '_', '-'])
+                        if has_dots:
+                            print(f"    Found text with potential fillable patterns: '{built.strip()[:50]}...'")
+                            matches = list(pattern.finditer(built))
+                            print(f"    Strict pattern matches found: {len(matches)}")
+                            
+                            # If no matches with strict pattern, try more lenient patterns
+                            if len(matches) == 0:
+                                print(f"    No strict matches, trying lenient pattern matching...")
+                                # Try individual character patterns
+                                dot_matches = []
+                                i = 0
+                                while i < len(built):
+                                    char = built[i]
+                                    if char in ['.', '…', '_', '-']:
+                                        # Find consecutive runs of the same character
+                                        start = i
+                                        while i < len(built) and built[i] == char:
+                                            i += 1
+                                        if i - start >= 3:  # At least 3 consecutive characters
+                                            dot_matches.append((start, i, char))
+                                            print(f"      Found {char} run: '{built[start:i]}' at {start}-{i}")
+                                    else:
+                                        i += 1
+                                
+                                print(f"    Found {len(dot_matches)} consecutive character runs")
+                                # Convert to match objects
+                                for start, end, char in dot_matches:
+                                    class SimpleMatch:
+                                        def __init__(self, start, end):
+                                            self._start = start
+                                            self._end = end
+                                        def start(self): return self._start
+                                        def end(self): return self._end
+                                    matches.append(SimpleMatch(start, end))
+                            
+                            for i, m in enumerate(matches):
+                                print(f"      Match {i+1}: '{built[m.start():m.end()]}' at {m.start()}-{m.end()}")
+                            print(f"    Character positions available: {len(char_positions)}")
+                            if len(char_positions) > 0:
+                                print(f"    First char position: {char_positions[0]}")
+                                print(f"    Last char position: {char_positions[-1]}")
+                    
+                    # Process all matches (both strict and lenient)
+                    for m in matches:
+                        s_idx, e_idx = m.start(), m.end()
+                        if s_idx >= len(char_positions):
+                            print(f"        Skipping match - start index {s_idx} >= char_positions length {len(char_positions)}")
+                            continue
+                        
+                        start_char = char_positions[s_idx]
+                        end_char = char_positions[min(e_idx-1, len(char_positions)-1)]
+                        
+                        print(f"        Processing match: '{built[s_idx:e_idx]}'")
+                        print(f"        Start char: {start_char}")
+                        print(f"        End char: {end_char}")
+                        
+                        # Field rectangle from character positions (use scale=1.0 for exact PDF coordinates)
+                        x0 = start_char[0]  # No scaling - use exact PDF coordinates
+                        y0 = start_char[1]  # No scaling - use exact PDF coordinates
+                        x1 = end_char[2]    # No scaling - use exact PDF coordinates
+                        y1 = end_char[3]    # No scaling - use exact PDF coordinates
+                        
+                        print(f"        Raw coordinates: x0={x0}, y0={y0}, x1={x1}, y1={y1}")
+                        
+                        # Clamp to page bounds (no scaling needed since we're using exact PDF coordinates)
+                        page_rect = page.rect
+                        x0 = max(0, min(x0, page_rect.width))
+                        y0 = max(0, min(y0, page_rect.height))
+                        x1 = max(x0 + 20, min(x1, page_rect.width))  # Minimum width of 20 points
+                        y1 = max(y0 + 10, min(y1, page_rect.height))  # Minimum height of 10 points
+                        
+                        print(f"        Clamped coordinates: x0={x0}, y0={y0}, x1={x1}, y1={y1}")
+                        
+                        # Context from surrounding text
+                        context_start = max(0, s_idx - 30)
+                        context_end = min(len(built), e_idx + 30)
+                        context = built[context_start:context_end]
+                        
+                        # Type classification
+                        context_lower = context.lower()
+                        if 'day' in context_lower and 'month' not in context_lower:
+                            field_type = 'day'
+                        elif 'month' in context_lower:
+                            field_type = 'month'
+                        elif 'year' in context_lower or '20' in context_lower:
+                            field_type = 'year'
+                        elif any(k in context_lower for k in ['employer', 'employee', 'company']):
+                            field_type = 'name'
+                        else:
+                            field_type = 'text'
+                        
+                        field = FormField(
+                            id=f"dots_field_p{page_num}_{field_id}",
+                            field_type=field_type,
+                            x_position=int(x0),
+                            y_position=int(y0),
+                            width=int(x1 - x0),
+                            height=int(y1 - y0),
+                            page_number=page_num,
+                            context=context[:160],
+                            confidence=0.9,
+                            detection_method="pdf_dotted_lines"
+                        )
+                        # Store exact coordinates for widget creation
+                        field.x1 = x0
+                        field.y1 = y0
+                        field.x2 = x1
+                        field.y2 = y1
+                        field.page = page_num
+                        fields.append(field)
+                        field_id += 1
+                        
+                        print(f"        Created field: {field.id} at ({x0:.1f}, {y0:.1f}) size ({x1-x0:.1f}x{y1-y0:.1f})")
+
+            return fields
+        except Exception as e:
+            print(f"Error in PDF dotted leader detection: {e}")
+            return fields
 
 def convert_form_fields_to_dict(fields: List[FormField]) -> List[Dict]:
     """Convert FormField objects to dictionary format for API compatibility"""

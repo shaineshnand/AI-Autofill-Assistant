@@ -194,7 +194,7 @@ class EnhancedDocumentProcessor:
             # Process each page
             for page_num in range(len(doc)):
                 page = doc[page_num]
-                mat = fitz.Matrix(2.0, 2.0)  # Scale up for better OCR
+                mat = fitz.Matrix(3.0, 3.0)  # Match 3x scaling used elsewhere
                 pix = page.get_pixmap(matrix=mat)
                 img_data = pix.tobytes("png")
                 
@@ -209,6 +209,18 @@ class EnhancedDocumentProcessor:
                 # Find form fields using advanced image processing
                 fields = self._detect_form_fields_advanced(gray, ocr_data, page_num)
                 all_fields.extend(fields)
+
+                # Detect dotted-leader placeholders from the page text
+                try:
+                    # PDF-native: use rawdict to compute accurate positions
+                    dotted_fields = self._detect_dotted_leader_fields_pdf(page, page_num, scale=3.0)
+                    # Fallback to text heuristic if none found
+                    if not dotted_fields:
+                        page_text = page.get_text() or ""
+                        dotted_fields = self._detect_dotted_leader_fields(page_text, gray.shape, page_num)
+                    all_fields.extend(dotted_fields)
+                except Exception as _dot_err:
+                    print(f"Error detecting dotted leaders on page {page_num}: {_dot_err}")
             
             doc.close()
             return all_fields
@@ -229,12 +241,258 @@ class EnhancedDocumentProcessor:
         
         # Method 3: Detect underlines and form lines
         line_based_fields = self._detect_line_based_fields(gray_image, page_num)
+
+        # Method 4: Detect dotted lines (dot leaders) visually
+        dotted_line_fields = self._detect_dotted_lines(gray_image, page_num)
         
         # Combine and deduplicate
-        all_fields = rectangular_fields + text_based_fields + line_based_fields
+        all_fields = rectangular_fields + text_based_fields + line_based_fields + dotted_line_fields
         fields = self._deduplicate_fields(all_fields)
         
         return fields
+
+    def _detect_dotted_lines(self, gray_image: np.ndarray, page_num: int = 0) -> List[FormField]:
+        """Detect dotted leader lines visually and turn them into input fields above the line.
+
+        This connects dot patterns horizontally and then finds long thin components.
+        """
+        fields: List[FormField] = []
+        try:
+            # Threshold: dark dots become white (foreground)
+            _, bin_inv = cv2.threshold(gray_image, 200, 255, cv2.THRESH_BINARY_INV)
+
+            # Bridge gaps horizontally to connect dotted segments
+            horiz_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 1))
+            connected = cv2.morphologyEx(bin_inv, cv2.MORPH_CLOSE, horiz_kernel, iterations=1)
+
+            contours, _ = cv2.findContours(connected, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            img_h, img_w = gray_image.shape
+
+            idx = 0
+            for cnt in contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                if w < 100 or h > 12:
+                    continue
+
+                # Sample text region above to classify
+                y0 = max(0, y - 35)
+                roi = gray_image[y0:y, x:min(img_w, x + w)]
+                text = ''
+                if roi.size > 0:
+                    try:
+                        text = pytesseract.image_to_string(roi, config='--psm 7').strip()
+                    except Exception:
+                        text = ''
+                text_lower = (text or '').lower()
+
+                field_type = 'text'
+                if 'day' in text_lower:
+                    field_type = 'day'
+                elif 'month' in text_lower:
+                    field_type = 'month'
+                elif 'year' in text_lower or '20' in text_lower:
+                    field_type = 'year'
+                elif any(k in text_lower for k in ['employer', 'employee', 'name']):
+                    field_type = 'name'
+
+                field = FormField(
+                    id=f"dots_vis_p{page_num}_{idx}",
+                    field_type=field_type,
+                    x=x,
+                    y=max(0, y - 24),
+                    width=w,
+                    height=25,
+                    context=text if text else 'dotted_line',
+                    confidence=0.75
+                )
+                field.page = page_num
+                fields.append(field)
+                idx += 1
+
+            return fields
+        except Exception as e:
+            print(f"Error detecting dotted lines: {e}")
+            return fields
+
+    def _detect_dotted_leader_fields(self, page_text: str, image_shape: Tuple, page_num: int = 0) -> List[FormField]:
+        """Detect dotted leader placeholders like sequences of '.' or '…' in text and
+        estimate input rectangles at those positions. Coordinates are in 3x pixel space.
+        """
+        fields: List[FormField] = []
+        try:
+            if not page_text:
+                return fields
+
+            lines = page_text.split('\n')
+            img_h = image_shape[0] if isinstance(image_shape, tuple) and len(image_shape) >= 1 else 2400
+            base_y = 50
+            line_height = 30
+
+            dotted_pattern = re.compile(r'(?:\.{3,}|…{1,})')
+            field_id_counter = 0
+
+            for line_idx, raw_line in enumerate(lines):
+                line = raw_line.rstrip()
+                if not line or ('.' not in line and '…' not in line):
+                    continue
+
+                for match in dotted_pattern.finditer(line):
+                    start_pos = match.start()
+                    end_pos = match.end()
+                    run_text = line[start_pos:end_pos]
+
+                    # Context
+                    context_before = line[max(0, start_pos-40):start_pos]
+                    context_after = line[end_pos:min(len(line), end_pos+40)]
+                    combined_context = (context_before + ' ' + context_after).lower()
+
+                    # Type guess
+                    if 'day' in combined_context and 'month' not in combined_context:
+                        field_type = 'day'
+                        est_width = 80
+                    elif 'month' in combined_context:
+                        field_type = 'month'
+                        est_width = 140
+                    elif 'year' in combined_context or '20' in combined_context:
+                        field_type = 'year'
+                        est_width = 100
+                    elif any(k in combined_context for k in ['employer', 'employee', 'company']):
+                        field_type = 'name'
+                        est_width = 260
+                    else:
+                        field_type = 'text'
+                        est_width = 200
+
+                    # Coordinate estimate from character positions
+                    x_est = 50 + max(0, start_pos) * 6
+                    y_est = base_y + line_idx * line_height
+                    width_est = max(80, min(est_width, 400))
+                    height_est = 25
+                    y_est = min(max(0, y_est), max(0, img_h - height_est))
+
+                    field = FormField(
+                        id=f"dots_field_p{page_num}_{field_id_counter}",
+                        field_type=field_type,
+                        x=x_est,
+                        y=y_est,
+                        width=width_est,
+                        height=height_est,
+                        context=f"{context_before} [{run_text}] {context_after}"[:160],
+                        confidence=0.85
+                    )
+                    field.page = page_num
+                    fields.append(field)
+                    field_id_counter += 1
+
+            return fields
+        except Exception as e:
+            print(f"Error in dotted leader detection: {e}")
+            return fields
+
+    def _detect_dotted_leader_fields_pdf(self, page, page_num: int, scale: float = 3.0) -> List[FormField]:
+        """Detect dotted leader placeholders using PDF raw text positions for accurate boxes.
+
+        We scan spans and search for sequences of '.' or '…', then map their bbox to a field rect
+        with a small height and a reasonable width based on run length.
+        Returned coordinates are scaled by 'scale' to match image-space used downstream.
+        """
+        fields: List[FormField] = []
+        try:
+            raw = page.get_text('rawdict')
+            if not raw or 'blocks' not in raw:
+                return fields
+
+            pattern = re.compile(r'(\.{3,}|…{1,})')
+            field_id = 0
+
+            for block in raw.get('blocks', []):
+                for line in block.get('lines', []):
+                    # Build line string and map char offsets to approximate x positions
+                    spans = line.get('spans', [])
+                    if not spans:
+                        continue
+                    line_text = ''.join(s.get('text', '') for s in spans)
+                    if not line_text or ('.' not in line_text and '…' not in line_text):
+                        continue
+
+                    # Approximate per-char width using span width/len
+                    char_positions = []  # list of (char, x0, x1, y0, y1)
+                    cursor_x = min((s['bbox'][0] for s in spans), default=0.0)
+                    base_y0 = min((s['bbox'][1] for s in spans), default=0.0)
+                    base_y1 = max((s['bbox'][3] for s in spans), default=0.0)
+                    built = ''
+                    for s in spans:
+                        t = s.get('text', '') or ''
+                        x0, y0, x1, y1 = s.get('bbox', (0, 0, 0, 0))
+                        width = max(0.1, x1 - x0)
+                        per_char = width / max(1, len(t))
+                        # Emit per char positions
+                        cx = x0
+                        for ch in t:
+                            char_positions.append((ch, cx, cx + per_char, y0, y1))
+                            cx += per_char
+                        built += t
+                    if not built:
+                        continue
+
+                    # Search dotted runs within built
+                    for m in pattern.finditer(built):
+                        s_idx, e_idx = m.start(), m.end()
+                        if s_idx >= len(char_positions):
+                            continue
+                        start_char = char_positions[s_idx]
+                        end_char = char_positions[min(e_idx - 1, len(char_positions) - 1)]
+                        x0 = start_char[1]
+                        x1 = end_char[2]
+                        y0 = min(start_char[3], end_char[3], base_y0)
+                        y1 = max(start_char[4], end_char[4], base_y1)
+
+                        # Expand to a usable field rectangle
+                        est_w = max(80.0, min((x1 - x0) * 2.0, 400.0))
+                        est_h = max(20.0, min((y1 - y0) * 1.2, 28.0))
+                        rect_x = x0
+                        rect_y = y0 - est_h  # place above the dots line a bit
+
+                        # Context for classification
+                        context_before = built[max(0, s_idx-40):s_idx]
+                        context_after = built[e_idx:min(len(built), e_idx+40)]
+                        combined = (context_before + ' ' + context_after).lower()
+                        if 'day' in combined and 'month' not in combined:
+                            ftype = 'day'
+                        elif 'month' in combined:
+                            ftype = 'month'
+                        elif 'year' in combined or '20' in combined:
+                            ftype = 'year'
+                        elif any(k in combined for k in ['employer', 'employee', 'company']):
+                            ftype = 'name'
+                        else:
+                            ftype = 'text'
+
+                        # Scale to image coordinates (3x) and clamp to page bounds
+                        page_w, page_h = float(page.rect.width), float(page.rect.height)
+                        sx = max(0.0, min(rect_x, page_w)) * scale
+                        sy = max(0.0, min(rect_y, page_h)) * scale
+                        sw = max(40.0, min(est_w, page_w - rect_x)) * scale
+                        sh = max(16.0, min(est_h, page_h * 0.1)) * scale
+
+                        field = FormField(
+                            id=f"dots_pdf_p{page_num}_{field_id}",
+                            field_type=ftype,
+                            x=int(sx),
+                            y=int(sy),
+                            width=int(sw),
+                            height=int(sh),
+                            context=f"{context_before} [{m.group(0)}] {context_after}"[:160],
+                            confidence=0.9
+                        )
+                        field.page = page_num
+                        fields.append(field)
+                        field_id += 1
+
+            return fields
+        except Exception as e:
+            print(f"Error in PDF dotted leader detection: {e}")
+            return fields
     
     def _detect_rectangular_fields(self, gray_image: np.ndarray, page_num: int = 0) -> List[FormField]:
         """Detect rectangular form fields using contour analysis"""

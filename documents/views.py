@@ -5,6 +5,7 @@ from rest_framework import status
 from django.http import FileResponse, Http404, JsonResponse
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
+import re
 import os
 import json
 import uuid
@@ -54,6 +55,42 @@ from training_storage import training_storage
 # In-memory storage (no database needed)
 documents_storage = {}
 chat_sessions = {}
+
+def get_stored_document(doc_id):
+    """
+    Get document from persistent storage first, then fall back to memory storage.
+    This ensures documents survive server reloads.
+    """
+    doc_id = str(doc_id)
+    
+    # Try persistent storage first (survives reloads)
+    try:
+        document = training_storage.load_document(doc_id)
+        if document:
+            # Also cache in memory for faster access
+            documents_storage[doc_id] = document
+            return document
+    except Exception as e:
+        print(f"Warning: Could not retrieve from persistent storage: {e}")
+    
+    # Fall back to memory storage
+    return documents_storage.get(doc_id)
+
+def save_document(document):
+    """
+    Save document to both persistent storage and memory.
+    This ensures documents survive server reloads.
+    """
+    doc_id = str(document.get('id'))
+    
+    # Save to persistent storage (survives reloads)
+    try:
+        training_storage.save_document(doc_id, document)
+    except Exception as e:
+        print(f"Warning: Could not save to persistent storage: {e}")
+    
+    # Also save to memory for faster access
+    documents_storage[doc_id] = document
 
 def auto_train_from_document(file_path, document, result):
     """
@@ -610,7 +647,7 @@ def index(request):
     # Check if there's a document in session
     if 'current_document_id' in request.session:
         doc_id = request.session['current_document_id']
-        document = documents_storage.get(doc_id)
+        document = get_stored_document(doc_id)
         if not document:
             del request.session['current_document_id']
     
@@ -697,6 +734,7 @@ def analyze_context(image, x, y, w, h, full_text=""):
 def upload_document(request):
     """Handle document upload and processing"""
     try:
+        print("=== UPLOAD STARTING ===")
         print("Starting upload_document function")
         if 'file' not in request.FILES:
             return Response({'error': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
@@ -769,10 +807,15 @@ def upload_document(request):
         if hasattr(request, 'session'):
             request.session['current_document_id'] = str(doc_id)
         
-        # Create field records in memory
+        # Create field records in memory with intelligent filtering
+        # Prioritize AcroForm fields over visual detection fields
+        acroform_fields = []
+        visual_fields = []
+        dots_fields = []
+        
         for i, space in enumerate(result['blank_spaces']):
             field = {
-                'id': i,
+                'id': str(space.get('id', i)),
                 'field_type': space.get('field_type', space.get('context', 'text')),
                 'x_position': space.get('x_position', space.get('x', 0)),
                 'y_position': space.get('y_position', space.get('y', 0)),
@@ -785,13 +828,62 @@ def upload_document(request):
                 'ai_suggestion': '',
                 'ai_enhanced': False
             }
-            document['fields'].append(field)
+            
+            # Categorize fields by detection method
+            field_id = str(space.get('id', i))
+            if field_id.startswith('acroform_'):
+                acroform_fields.append(field)
+            elif field_id.startswith('dots_field_'):
+                dots_fields.append(field)
+            else:
+                visual_fields.append(field)
         
+        # Add fields in priority order: AcroForm > Dotted Lines > Visual Detection
+        # If AcroForm fields exist, skip visual detection fields to avoid duplicates
+        # If dotted line fields exist, also skip visual detection fields to avoid duplicates
+        if acroform_fields:
+            document['fields'].extend(acroform_fields)
+            document['fields'].extend(dots_fields)  # Always include dotted line fields
+            print(f"✓ Added {len(acroform_fields)} AcroForm fields + {len(dots_fields)} dotted line fields")
+            if visual_fields:
+                print(f"✗ Skipped {len(visual_fields)} visual detection fields (AcroForm fields take priority)")
+        elif dots_fields:
+            # No AcroForm fields, but dotted line fields exist - skip visual detection
+            document['fields'].extend(dots_fields)
+            print(f"✓ Added {len(dots_fields)} dotted line fields")
+            if visual_fields:
+                print(f"✗ Skipped {len(visual_fields)} visual detection fields (dotted line fields take priority)")
+        else:
+            # No AcroForm or dotted line fields, use all detected fields
+            document['fields'].extend(visual_fields)
+            print(f"✓ Added {len(visual_fields)} visual detection fields (no AcroForm or dotted line fields found)")
+        
+        # Automatically create an interactive fillable PDF for PDF uploads
+        print(f"Upload processing - File extension: {file_ext}")
+        try:
+            if file_ext == '.pdf':
+                print(f"PDF detected - processing fillable PDF creation...")
+                processed_dir = os.path.join(settings.MEDIA_ROOT, 'processed')
+                os.makedirs(processed_dir, exist_ok=True)
+                fillable_filename = f"fillable_{os.path.basename(filepath)}"
+                fillable_output_path = os.path.join(processed_dir, fillable_filename)
+                print(f"Creating fillable PDF with {len(document['fields'])} fields...")
+                success = create_fillable_pdf(filepath, fillable_output_path, document['fields'])
+                print(f"Fillable PDF creation result: {success}")
+                if success:
+                    document['fillable_pdf'] = f"/media/processed/{fillable_filename}"
+                    document['fillable_pdf_path'] = fillable_output_path
+                    print(f"Fillable PDF created: {fillable_output_path}")
+                else:
+                    print(f"Fillable PDF creation failed for: {filepath}")
+        except Exception as _auto_fillable_err:
+            # Non-fatal: continue without blocking upload
+            import traceback
+            print(f"Auto fillable PDF generation failed: {_auto_fillable_err}")
+            print(f"Traceback: {traceback.format_exc()}")
+
         # Store in memory
-        documents_storage[str(doc_id)] = document
-        
-        # Also save to persistent storage
-        training_storage.save_document(str(doc_id), document)
+        save_document(document)
         
         # DISABLED: Automatic training (user should delete unwanted fields first)
         # User will click "Train System" button after cleaning up fields
@@ -829,7 +921,7 @@ def upload_document(request):
 def get_document(request, doc_id):
     """Get document information"""
     try:
-        document = documents_storage.get(str(doc_id))
+        document = get_stored_document(doc_id)
         if not document:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
         return Response(document)
@@ -843,7 +935,7 @@ def update_field(request, doc_id):
         field_id = request.data.get('field_id')
         content = request.data.get('content', '')
         
-        document = documents_storage.get(str(doc_id))
+        document = get_stored_document(doc_id)
         if not document:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
         
@@ -854,6 +946,9 @@ def update_field(request, doc_id):
                 break
         else:
             return Response({'error': 'Field not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Save to both persistent storage and memory
+        save_document(document)
         
         return Response({'success': True})
         
@@ -866,7 +961,7 @@ def delete_field(request, doc_id):
     try:
         field_id = request.data.get('field_id')
         
-        document = documents_storage.get(str(doc_id))
+        document = get_stored_document(doc_id)
         if not document:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
         
@@ -910,50 +1005,47 @@ def generate_pdf(request, doc_id):
     try:
         document = documents_storage.get(str(doc_id))
         if not document:
-            return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+            # Fallback to persistent storage if not found in memory
+            print(f"Document {doc_id} not found in memory storage, checking persistent storage...")
+            try:
+                document = training_storage.load_document(str(doc_id))
+                if document:
+                    print(f"Document {doc_id} found in persistent storage")
+                    # Cache in memory storage
+                    documents_storage[str(doc_id)] = document
+                else:
+                    print(f"Document {doc_id} not found in persistent storage either")
+                    return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+            except Exception as e:
+                print(f"Error retrieving document from persistent storage: {e}")
+                return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        # Create PDF
-        pdf_filename = f"filled_{doc_id}.pdf"
+        # Prefer the auto-generated fillable PDF as the base
+        print(f"Generate PDF - Document keys: {list(document.keys())}")
+        print(f"Generate PDF - fillable_pdf_path: {document.get('fillable_pdf_path')}")
+        print(f"Generate PDF - file_path: {document.get('file_path')}")
+        base_input = document.get('fillable_pdf_path') or document['file_path']
+        print(f"Generate PDF - Using base input: {base_input}")
+        print(f"Generate PDF - Fillable PDF path available: {document.get('fillable_pdf_path') is not None}")
         processed_path = os.path.join(settings.MEDIA_ROOT, 'processed')
         os.makedirs(processed_path, exist_ok=True)
-        pdf_path = os.path.join(processed_path, pdf_filename)
+        output_filename = f"filled_{doc_id}.pdf"
+        pdf_path = os.path.join(processed_path, output_filename)
+
+        # Fill either the fillable base (widgets) or draw overlays when needed
+        print(f"Generate PDF - Creating filled PDF with {len(document['fields'])} fields...")
+        success = create_filled_pdf(base_input, pdf_path, document['fields'])
+        if not success and base_input != document['file_path']:
+            # Fallback to original file if widget fill failed for any reason
+            success = create_filled_pdf(document['file_path'], pdf_path, document['fields'])
         
-        # Create PDF with filled information
-        c = canvas.Canvas(pdf_path, pagesize=letter)
-        width, height = letter
-        
-        # Title
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(100, height - 100, f"Filled Document: {document['filename']}")
-        
-        # Document information
-        c.setFont("Helvetica", 12)
-        y_position = height - 150
-        
-        c.drawString(100, y_position, f"Document ID: {doc_id}")
-        y_position -= 30
-        c.drawString(100, y_position, f"Uploaded: {document['uploaded_at']}")
-        y_position -= 30
-        c.drawString(100, y_position, f"Total Fields: {document['total_blanks']}")
-        y_position -= 50
-        
-        # Filled fields
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(100, y_position, "Filled Fields:")
-        y_position -= 30
-        
-        c.setFont("Helvetica", 12)
-        for field in document['fields']:
-            if field['user_content']:
-                c.drawString(120, y_position, f"Field {field['id']} ({field['context']}): {field['user_content']}")
-                y_position -= 25
-        
-        c.save()
+        if not success:
+            return Response({'error': 'Failed to generate filled PDF'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         return Response({
             'success': True,
             'pdf_path': pdf_path,
-            'download_url': f'/api/documents/download/{doc_id}'
+            'download_url': f"/api/documents/download/{doc_id}"
         })
         
     except Exception as e:
@@ -1149,7 +1241,7 @@ def get_training_stats(request):
 def preview_document(request, doc_id):
     """Preview the original document"""
     try:
-        document = documents_storage.get(str(doc_id))
+        document = get_stored_document(doc_id)
         if not document:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
         
@@ -1198,8 +1290,19 @@ def regenerate_document(request, doc_id):
         
         document = documents_storage.get(str(doc_id))
         if not document:
-            print(f"Document not found: {doc_id}")
-            return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+            print(f"Document {doc_id} not found in memory storage, checking persistent storage...")
+            try:
+                document = training_storage.load_document(str(doc_id))
+                if document:
+                    print(f"Document {doc_id} found in persistent storage")
+                    # Cache in memory storage
+                    documents_storage[str(doc_id)] = document
+                else:
+                    print(f"Document {doc_id} not found in persistent storage either")
+                    return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+            except Exception as e:
+                print(f"Error retrieving document from persistent storage: {e}")
+                return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
         
         print(f"Document found: {document.get('filename', 'unknown')}")
         
@@ -1213,8 +1316,14 @@ def regenerate_document(request, doc_id):
         file_ext = os.path.splitext(file_path)[1].lower()
         print(f"File extension: {file_ext}")
         
+        # Prefer the auto-generated fillable PDF as base when available
+        print(f"Regenerate - fillable_pdf_path: {document.get('fillable_pdf_path')}")
+        print(f"Regenerate - file_path: {file_path}")
+        base_input = document.get('fillable_pdf_path') or file_path
+        print(f"Regenerate - Using base input: {base_input}")
+        
         # Create output filename
-        output_filename = f"filled_{os.path.basename(file_path)}"
+        output_filename = f"filled_{os.path.basename(base_input)}"
         output_path = os.path.join(settings.MEDIA_ROOT, 'processed', output_filename)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
@@ -1224,7 +1333,14 @@ def regenerate_document(request, doc_id):
         if file_ext == '.pdf':
             # For PDFs, create a new PDF with filled content
             print("Creating filled PDF...")
-            success = create_filled_pdf(file_path, output_path, document['fields'])
+            success = create_filled_pdf(base_input, output_path, document['fields'])
+            if not success and base_input != file_path:
+                # Fallback to original file if widget fill fails
+                success = create_filled_pdf(file_path, output_path, document['fields'])
+        elif file_ext == '.pdf_fillable':
+            # Special route (if we ever mark files for interactive conversion)
+            print("Creating interactive fillable PDF...")
+            success = create_fillable_pdf(file_path, output_path, document['fields'])
         elif file_ext in ['.doc', '.docx']:
             # For Word documents, create a new Word document with filled content
             print("Creating filled Word document...")
@@ -1264,12 +1380,11 @@ def create_filled_pdf(input_path, output_path, fields):
         # Open the original PDF
         doc = fitz.open(input_path)
         
-        # Create a new PDF document
-        new_doc = fitz.open()
+        # We will write directly into the original PDF (keeps AcroForm updates intact)
         
-        # IMPORTANT: Coordinates from field detection are scaled by 2.0 (Matrix(2.0, 2.0))
-        # We need to scale them back to match the original PDF dimensions
-        SCALE_FACTOR = 2.0
+        # IMPORTANT: Enhanced detector renders pages at 3.0x scale for detection
+        # Scale coordinates back to match the original PDF dimensions
+        SCALE_FACTOR = 3.0
         
         # Group fields by page for easier processing
         fields_by_page = {}
@@ -1278,25 +1393,94 @@ def create_filled_pdf(input_path, output_path, fields):
             if page_num not in fields_by_page:
                 fields_by_page[page_num] = []
             fields_by_page[page_num].append(field)
+
+        # First, fill AcroForm widgets directly inside the original document
+        # Build per-page map of acroform field_name -> content
+        acro_content_by_page = {}
+        print(f"Building AcroForm content map from {len(fields)} total fields")
+        for page_num, page_fields in fields_by_page.items():
+            print(f"  Page {page_num}: {len(page_fields)} fields")
+            for f in page_fields:
+                field_id_str = str(f.get('id', ''))
+                # Treat both acroform_* and dots_field_* as AcroForm fields
+                if field_id_str.startswith('acroform_') or field_id_str.startswith('dots_field_'):
+                    # Check both user_content and ai_content
+                    user_content = str(f.get('user_content', '')).strip()
+                    ai_content = str(f.get('ai_content', '')).strip()
+                    content = user_content if user_content else ai_content
+                    print(f"    Field {field_id_str}: user_content = '{user_content}', ai_content = '{ai_content}', using = '{content}'")
+                    if not content:
+                        print(f"    Skipping {field_id_str} (no content)")
+                        continue
+                    # For dots_field_*, generate the same field name as during widget creation
+                    # For acroform_*, use context or field_id_str
+                    if field_id_str.startswith('dots_field_'):
+                        # Generate the same field name as during widget creation
+                        base_name = str(f.get('context', 'text') or 'text').replace(' ', '_')[:32]
+                        field_name = f"auto_{base_name}_{page_num}_{field_id_str}"
+                    else:
+                        field_name = str(f.get('context', '')) or field_id_str.replace('acroform_', '')
+                    if page_num not in acro_content_by_page:
+                        acro_content_by_page[page_num] = {}
+                    acro_content_by_page[page_num][field_name] = content
+                    print(f"    Added AcroForm field: {field_name} -> '{content}' on page {page_num}")
+
+        # Apply acroform content
+        print(f"Applying AcroForm content to {len(doc)} pages")
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            page_map = acro_content_by_page.get(page_num, {})
+            print(f"Page {page_num}: {len(page_map)} AcroForm fields to fill")
+            if page_map:
+                print(f"  Fields to fill: {list(page_map.keys())}")
+            if not page_map:
+                continue
+            try:
+                widgets = list(page.widgets())
+                print(f"Page {page_num}: Found {len(widgets)} widgets")
+                for widget in widgets:
+                    name = getattr(widget, 'field_name', '') or ''
+                    if not name:
+                        continue
+                    print(f"  Widget: {name}")
+                    if name in page_map:
+                        content = page_map[name]
+                        field_type_str = (getattr(widget, 'field_type_string', '') or '').lower()
+                        print(f"    Filling widget {name} with '{content}' (type: {field_type_str})")
+                        try:
+                            if field_type_str == 'checkbox':
+                                # Check if content indicates a checked state
+                                checked = str(content).strip().lower() in ['1', 'true', 'yes', 'checked', 'on']
+                                widget.set_checked(checked)
+                            elif field_type_str in ['radiobutton', 'radio']:
+                                # Best effort: mark as selected when content is truthy
+                                if str(content).strip():
+                                    widget.set_checked(True)
+                            else:
+                                widget.field_value = content
+                            widget.update()
+                            print(f"    Successfully filled widget {name}")
+                        except Exception as e:
+                            print(f"    Failed to fill widget {name}: {e}")
+                            pass
+                    else:
+                        print(f"    Widget {name} not found in page_map")
+            except Exception as e:
+                print(f"    Error processing page {page_num} widgets: {e}")
+                pass
         
         print(f"Processing {len(doc)} pages with {len(fields)} total fields")
         print(f"Fields by page: {[(p, len(f)) for p, f in fields_by_page.items()]}")
         
-        # Process each page
+        # Process each page (draw overlays for non-acro fields directly on original page)
         for page_num in range(len(doc)):
             page = doc[page_num]
-            
-            # Create a new page with same dimensions
-            new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)
-            
-            # Copy the original page content
-            new_page.show_pdf_page(page.rect, doc, page_num)
-            
+
             # Get fields for this page
             page_fields = fields_by_page.get(page_num, [])
             print(f"Page {page_num}: {len(page_fields)} fields to fill")
             
-            # Add filled content to the fields for this page
+            # Add filled content to the fields for this page (only for non-AcroForm fields)
             for field in page_fields:
                 try:
                     user_content = field.get('user_content', '').strip()
@@ -1304,28 +1488,25 @@ def create_filled_pdf(input_path, output_path, fields):
                         continue
                     
                     # Check if this is an AcroForm field (already in PDF coordinates)
-                    # or a visually detected field (needs scaling from 2x image)
+                    # or a visually detected field (needs scaling from 3x image)
                     field_id = str(field.get('id', ''))
                     is_acroform = field_id.startswith('acroform_')
                     
-                    # Get field coordinates safely
-                    x_pos = field.get('x_position', field.get('x', 0))
-                    y_pos = field.get('y_position', field.get('y', 0))
-                    field_width = field.get('width', 100)
-                    field_height = field.get('height', 25)
-                    
+                    # Skip overlay for AcroForm - they were filled directly above
                     if is_acroform:
-                        # AcroForm fields are already in PDF coordinates
-                        x = float(x_pos)
-                        y = float(y_pos)
-                        width = float(field_width)
-                        height = float(field_height)
-                    else:
-                        # Visual detection fields need to be scaled back
-                        x = float(x_pos) / SCALE_FACTOR
-                        y = float(y_pos) / SCALE_FACTOR
-                        width = float(field_width) / SCALE_FACTOR
-                        height = float(field_height) / SCALE_FACTOR
+                        continue
+
+                    # Get field coordinates safely
+                    x_pos = float(field.get('x_position', field.get('x', 0)))
+                    y_pos = float(field.get('y_position', field.get('y', 0)))
+                    field_width = float(field.get('width', 100))
+                    field_height = float(field.get('height', 25))
+                    
+                    # Visual detection fields need to be scaled back from 3x detection scale
+                    x = float(x_pos) / SCALE_FACTOR
+                    y = float(y_pos) / SCALE_FACTOR
+                    width = float(field_width) / SCALE_FACTOR
+                    height = float(field_height) / SCALE_FACTOR
                     
                     field_type = str(field.get('field_type', 'text')).lower()
                     content = str(user_content)
@@ -1341,7 +1522,7 @@ def create_filled_pdf(input_path, output_path, fields):
                                 (x + width/3, y + height - 1),
                                 (x + width - 1, y + 1)
                             ]
-                            new_page.draw_polyline(checkmark_points, color=(0, 0, 0), width=1)
+                            page.draw_polyline(checkmark_points, color=(0, 0, 0), width=1)
                         
                     elif field_type == 'radio':
                         # For radio buttons, draw a filled circle if selected
@@ -1349,35 +1530,34 @@ def create_filled_pdf(input_path, output_path, fields):
                             center_x = x + width/2
                             center_y = y + height/2
                             radius = min(width, height) / 3
-                            new_page.draw_circle((center_x, center_y), radius, color=(0, 0, 0), width=1)
+                            page.draw_circle((center_x, center_y), radius, color=(0, 0, 0), width=1)
                             # Fill the circle
-                            new_page.draw_circle((center_x, center_y), radius/2, color=(0, 0, 0), fill=(0, 0, 0))
+                            page.draw_circle((center_x, center_y), radius/2, color=(0, 0, 0), fill=(0, 0, 0))
                         
                     elif field_type == 'dropdown':
-                        # For dropdowns, show the selected option
-                        font_size = min(10, height * 0.7)  # Scale font to field height
-                        new_page.insert_text(
-                            (x + 2, y + height * 0.75),  # Position text baseline
+                        # For dropdowns, place text inside the field rectangle using a textbox
+                        font_size = max(10, min(14, height * 0.9))
+                        text_rect = fitz.Rect(x + 2, y + 2, x + width - 2, y + height - 2)
+                        page.insert_textbox(
+                            text_rect,
                             content,
                             fontsize=font_size,
                             color=(0, 0, 0),
-                            fontname="helv"
+                            fontname="helv",
+                            align=fitz.TEXT_ALIGN_LEFT
                         )
                         
                     else:
-                        # For text fields, insert the text normally
-                        font_size = min(11, height * 0.7)  # Scale font to field height
-                        
-                        # Calculate text position - align with baseline
-                        text_x = x + 2
-                        text_y = y + height * 0.75  # Position baseline at 75% of field height
-                        
-                        new_page.insert_text(
-                            (text_x, text_y),
+                        # For text fields, place content inside the rectangle using a textbox for reliable alignment
+                        font_size = max(10, min(14, height * 0.9))
+                        text_rect = fitz.Rect(x + 2, y + 2, x + width - 2, y + height - 2)
+                        page.insert_textbox(
+                            text_rect,
                             content,
                             fontsize=font_size,
                             color=(0, 0, 0),
-                            fontname="helv"
+                            fontname="helv",
+                            align=fitz.TEXT_ALIGN_LEFT
                         )
                         
                 except Exception as field_error:
@@ -1386,9 +1566,13 @@ def create_filled_pdf(input_path, output_path, fields):
                     traceback.print_exc()
                     continue
         
-        # Save the new document
-        new_doc.save(output_path)
-        new_doc.close()
+        # Save the updated document preserving interactive fields
+        doc.save(
+            output_path,
+            garbage=4,  # Maximum garbage collection
+            deflate=True,  # Compress
+            clean=True  # Clean up
+        )
         doc.close()
         
         print(f"PDF saved successfully to {output_path}")
@@ -1396,6 +1580,381 @@ def create_filled_pdf(input_path, output_path, fields):
         
     except Exception as e:
         print(f"Error creating filled PDF: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def create_fillable_pdf(input_path, output_path, fields):
+    """Create an interactive (AcroForm) fillable PDF based on detected fields.
+    - Adds text and checkbox widgets for non-Acro fields using page coordinates.
+    - Keeps existing AcroForm fields untouched.
+    """
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(input_path)
+
+        SCALE_FACTOR = 3.0  # detection was done at 3x scale
+
+        def _detect_dotted_leaders_pdf_for_widgets(pdf_doc, scale: float = 3.0):
+            """Fallback detector: find dotted leaders and yield widget-like field dicts.
+            Coordinates are returned in the same 3x pixel space expected by caller.
+            """
+            detected = []
+            pattern = re.compile(r'(\.{3,}|…{2,})')
+            for pnum in range(len(pdf_doc)):
+                try:
+                    page = pdf_doc[pnum]
+                    raw = page.get_text('rawdict')
+                    if not raw or 'blocks' not in raw:
+                        continue
+                    idx = 0
+                    for block in raw.get('blocks', []):
+                        for line in block.get('lines', []):
+                            spans = line.get('spans', [])
+                            if not spans:
+                                continue
+                            built = ''.join(s.get('text', '') or '' for s in spans)
+                            if not built or ('.' not in built and '…' not in built):
+                                continue
+                            # Build per-char positions
+                            char_positions = []
+                            for s in spans:
+                                t = s.get('text', '') or ''
+                                x0, y0, x1, y1 = s.get('bbox', (0, 0, 0, 0))
+                                width = max(0.1, x1 - x0)
+                                per_char = width / max(1, len(t))
+                                cx = x0
+                                for ch in t:
+                                    char_positions.append((ch, cx, cx + per_char, y0, y1))
+                                    cx += per_char
+                            if not char_positions:
+                                continue
+                            for m in pattern.finditer(built):
+                                s_idx, e_idx = m.start(), m.end()
+                                if s_idx >= len(char_positions):
+                                    continue
+                                start_char = char_positions[s_idx]
+                                end_char = char_positions[min(e_idx - 1, len(char_positions) - 1)]
+                                x0 = start_char[1]
+                                x1 = end_char[2]
+                                y0 = min(start_char[3], end_char[3])
+                                y1 = max(start_char[4], end_char[4])
+
+                                est_w = max(80.0, min((x1 - x0) * 2.0, 400.0))
+                                est_h = max(20.0, min((y1 - y0) * 1.2, 28.0))
+                                rect_x = x0
+                                rect_y = y0 - est_h
+
+                                page_w, page_h = float(page.rect.width), float(page.rect.height)
+                                sx = max(0.0, min(rect_x, page_w)) * scale
+                                sy = max(0.0, min(rect_y, page_h)) * scale
+                                sw = max(40.0, min(est_w, page_w - rect_x)) * scale
+                                sh = max(16.0, min(est_h, page_h * 0.1)) * scale
+
+                                context_before = built[max(0, s_idx-40):s_idx]
+                                context_after = built[e_idx:min(len(built), e_idx+40)]
+                                combined = (context_before + ' ' + context_after).lower()
+                                if 'day' in combined and 'month' not in combined:
+                                    ftype = 'day'
+                                elif 'month' in combined:
+                                    ftype = 'month'
+                                elif 'year' in combined or '20' in combined:
+                                    ftype = 'year'
+                                elif any(k in combined for k in ['employer', 'employee', 'company']):
+                                    ftype = 'name'
+                                else:
+                                    ftype = 'text'
+
+                                detected.append({
+                                    'id': f'dots_pdf_p{pnum}_{idx}',
+                                    'field_type': ftype,
+                                    'x_position': int(sx),
+                                    'y_position': int(sy),
+                                    'width': int(sw),
+                                    'height': int(sh),
+                                    'context': (context_before + ' ' + context_after).strip()[:120] or 'dotted_line',
+                                    'page': pnum
+                                })
+                                idx += 1
+                except Exception:
+                    continue
+            return detected
+
+        def _detect_anchor_fields(pdf_doc, scale: float = 3.0):
+            """Heuristic anchors for common contract lines where dots might be vector graphics.
+            - Creates fields near words: 'day', 'month', 'year', 'Employer', 'Employee'
+            Coordinates returned in 3x image space (scale applied).
+            """
+            results = []
+            keywords = ['day', 'month', 'year', 'employer', 'employee']
+            for pnum in range(len(pdf_doc)):
+                try:
+                    page = pdf_doc[pnum]
+                    words = page.get_text('words') or []
+                    if not words:
+                        continue
+                    # Normalize list of tuples: (x0,y0,x1,y1,word,block,line,wordno)
+                    for w in words:
+                        if len(w) < 5:
+                            continue
+                        x0, y0, x1, y1, token = float(w[0]), float(w[1]), float(w[2]), float(w[3]), str(w[4]).lower()
+                        if token not in keywords:
+                            continue
+                        # default sizes
+                        h = max(16.0, min(24.0, (y1 - y0) * 1.1))
+                        if token == 'day' or token == 'month':
+                            # field to the left of the word
+                            width = 100.0 if token == 'day' else 140.0
+                            rx = max(0.0, x0 - (width + 8.0))
+                            ry = max(0.0, y0 - (h * 0.2))
+                        elif token == 'year':
+                            # field to the right of the word
+                            width = 120.0
+                            rx = x1 + 8.0
+                            ry = max(0.0, y0 - (h * 0.2))
+                        elif token in ('employer', 'employee'):
+                            # long field to the left edge
+                            width = 360.0
+                            left_margin = max(0.0, page.rect.x0 + 50.0)
+                            rx = max(0.0, min(x0 - width - 12.0, x0 - 60.0, left_margin))
+                            ry = max(0.0, y0 - (h * 0.2))
+                        else:
+                            continue
+
+                        # Clamp to page
+                        rx = max(0.0, min(rx, float(page.rect.width) - 10.0))
+                        ry = max(0.0, min(ry, float(page.rect.height) - h))
+
+                        results.append({
+                            'id': f'anchor_{token}_p{pnum}_{int(rx)}',
+                            'field_type': 'text' if token not in ('day','month','year') else token,
+                            'x_position': int(rx * scale),
+                            'y_position': int(ry * scale),
+                            'width': int(width * scale),
+                            'height': int(h * scale),
+                            'context': token,
+                            'page': pnum
+                        })
+                except Exception:
+                    continue
+            return results
+
+        # Always detect dotted leaders and merge with provided fields
+        def _overlaps(a, b) -> bool:
+            try:
+                ax1 = float(a.get('x_position', a.get('x', 0)))
+                ay1 = float(a.get('y_position', a.get('y', 0)))
+                ax2 = ax1 + float(a.get('width', 0))
+                ay2 = ay1 + float(a.get('height', 0))
+                bx1 = float(b.get('x_position', b.get('x', 0)))
+                by1 = float(b.get('y_position', b.get('y', 0)))
+                bx2 = bx1 + float(b.get('width', 0))
+                by2 = by1 + float(b.get('height', 0))
+                ix1 = max(ax1, bx1)
+                iy1 = max(ay1, by1)
+                ix2 = min(ax2, bx2)
+                iy2 = min(ay2, by2)
+                if ix1 >= ix2 or iy1 >= iy2:
+                    return False
+                inter = (ix2 - ix1) * (iy2 - iy1)
+                a_area = (ax2 - ax1) * (ay2 - ay1)
+                b_area = (bx2 - bx1) * (by2 - by1)
+                # consider overlapping if > 25% of smaller area
+                return inter > 0.25 * min(a_area, b_area)
+            except Exception:
+                return False
+
+        try:
+            existing = list(fields or [])
+        except Exception:
+            existing = []
+
+        # Use existing dots_field_* fields from enhanced detection
+        dotted_fields = [f for f in existing if f.get('id', '').startswith('dots_field_')]
+        print(f"Found {len(dotted_fields)} existing dotted fields to convert to AcroForm widgets")
+        
+        # Convert dots_field_* fields to widget format
+        dotted_extra = []
+        for field in dotted_fields:
+            try:
+                widget_field = {
+                    'id': field['id'],
+                    'field_type': field.get('field_type', 'text'),
+                    'x_position': field['x_position'],
+                    'y_position': field['y_position'], 
+                    'width': field['width'],
+                    'height': field['height'],
+                    'context': field.get('context', ''),
+                    'page': field.get('page_number', 0)
+                }
+                dotted_extra.append(widget_field)
+                print(f"  Converting {field['id']} to widget format")
+            except Exception as e:
+                print(f"  Error converting {field.get('id', 'unknown')}: {e}")
+                continue
+
+        # If no dotted fields from detection, try fallback detection
+        if not dotted_extra:
+            try:
+                dotted_extra = _detect_dotted_leaders_pdf_for_widgets(doc, SCALE_FACTOR)
+                print(f"Fallback detection found {len(dotted_extra)} dotted fields")
+            except Exception as e:
+                print(f"Fallback dotted detection failed: {e}")
+                dotted_extra = []
+
+        # If still few or no dotted fields found, add anchor-based fields as safety net
+        try:
+            if len([f for f in dotted_extra if f.get('page', 0) == 0]) < 2:
+                anchor_fields = _detect_anchor_fields(doc, SCALE_FACTOR)
+                dotted_extra.extend(anchor_fields)
+                print(f"Added {len(anchor_fields)} anchor-based fields as safety net")
+        except Exception as e:
+            print(f"Anchor field detection failed: {e}")
+            pass
+
+        # Merge without duplicates
+        for d in dotted_extra:
+            dup = False
+            for e in existing:
+                # same page and overlapping
+                if int(d.get('page', 0)) == int(e.get('page', 0)) and _overlaps(d, e):
+                    dup = True
+                    break
+            if not dup:
+                existing.append(d)
+
+        fields = existing
+
+        # Group fields by page
+        fields_by_page = {}
+        for field in fields:
+            page_num = field.get('page', 0)
+            fields_by_page.setdefault(page_num, []).append(field)
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            page_fields = fields_by_page.get(page_num, [])
+            print(f"Page {page_num}: Creating AcroForm widgets for {len(page_fields)} fields")
+            print(f"  Field types: {[str(f.get('id', '')) for f in page_fields]}")
+
+            for f in page_fields:
+                try:
+                    field_id = str(f.get('id', ''))
+                    # Skip if it's already an AcroForm field
+                    if field_id.startswith('acroform_'):
+                        continue
+                    
+                    # ONLY create widgets for dotted line fields, not regular text boxes
+                    if not field_id.startswith('dots_field_'):
+                        print(f"  Skipping {field_id} - not a dotted line field")
+                        continue
+
+                    field_type = str(f.get('field_type', 'text')).lower()
+                    # For dotted fields, use the x1,y1,x2,y2 coordinates directly
+                    # These are now exact PDF coordinates (no scaling needed)
+                    if 'x1' in f and 'y1' in f and 'x2' in f and 'y2' in f:
+                        x1 = float(f['x1'])
+                        y1 = float(f['y1']) 
+                        x2 = float(f['x2'])
+                        y2 = float(f['y2'])
+                        
+                        # Use exact PDF coordinates directly (no scaling)
+                        x = x1
+                        y = y1
+                        w = x2 - x1
+                        h = y2 - y1
+                        print(f"    Using exact PDF coordinates: ({x1:.1f}, {y1:.1f}) to ({x2:.1f}, {y2:.1f})")
+                    else:
+                        # Fallback to old method if x1,y1,x2,y2 not available
+                        x_raw = float(f.get('x_position', f.get('x', 0)))
+                        y_raw = float(f.get('y_position', f.get('y', 0)))
+                        w_raw = float(f.get('width', 100))
+                        h_raw = float(f.get('height', 25))
+                        
+                        x = x_raw / SCALE_FACTOR
+                        y = y_raw / SCALE_FACTOR
+                        w = w_raw / SCALE_FACTOR
+                        h = h_raw / SCALE_FACTOR
+                        print(f"    Using fallback scaled coordinates")
+                    rect = fitz.Rect(x, y, x + w, y + h)
+
+                    # Generate field name to keep them unique and readable
+                    # Use the field's actual page number, not the loop page number
+                    field_page_num = f.get('page', page_num)
+                    base_name = str(f.get('context', field_type) or field_type).replace(' ', '_')[:32]
+                    field_name = f"auto_{base_name}_{field_page_num}_{field_id}"
+
+                    # Choose widget type (fallback to text when API does not support others)
+                    widget_type = fitz.PDF_WIDGET_TYPE_TEXT
+                    if field_type == 'checkbox':
+                        widget_type = fitz.PDF_WIDGET_TYPE_CHECKBOX
+
+                    # Check API availability
+                    print(f"  Creating widget for {field_id} at ({x:.1f}, {y:.1f}) size ({w:.1f}x{h:.1f})")
+                    print(f"    Field name: {field_name}")
+                    print(f"    Field page: {field_page_num}, Loop page: {page_num}")
+                    print(f"    Widget type: {widget_type}")
+                    print(f"    Final coordinates: x={x:.1f}, y={y:.1f}, w={w:.1f}, h={h:.1f}")
+                    print(f"    Rect: {rect}")
+                    print(f"    Context: '{f.get('context', '')}'")
+                    print(f"    User content: '{f.get('user_content', '')}'")
+                    print(f"    AI content: '{f.get('ai_content', '')}'")
+                    print(f"    Field detection method: {f.get('detection_method', 'unknown')}")
+                    if hasattr(page, 'add_widget'):
+                        print(f"    PyMuPDF add_widget method available")
+                        try:
+                            # Create a new Widget object
+                            widget = fitz.Widget()
+                            
+                            # Set widget properties
+                            widget.rect = rect
+                            widget.field_name = field_name
+                            widget.field_label = field_name
+                            widget.field_type = widget_type
+                            # Set initial content (prefer user_content, fallback to ai_content)
+                            initial_content = f.get('user_content', '') or f.get('ai_content', '')
+                            widget.field_value = initial_content
+                            widget.field_flags = 0  # Standard editable field
+                            widget.border_color = (0, 0, 1)  # Blue border for visibility
+                            widget.border_width = 1
+                            widget.fill_color = (0.95, 0.95, 1)  # Light blue background
+                            widget.text_color = (0, 0, 0)  # Black text
+                            widget.text_font = "helv"  # Helvetica font
+                            widget.text_fontsize = 10
+                            
+                            if widget_type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
+                                # Default unchecked; leave content to user
+                                widget.field_value = False
+                            
+                            # Add the widget to the page
+                            page.add_widget(widget)
+                            widget.update()
+                            print(f"    Widget created and updated successfully")
+                        except Exception as widget_error:
+                            print(f"    ERROR creating widget: {widget_error}")
+                            import traceback
+                            traceback.print_exc()
+                            # Continue with next widget
+                    else:
+                        # Fallback: draw a thin rectangle to indicate input area (non-interactive)
+                        print(f"    PyMuPDF add_widget method NOT available - using fallback rectangle")
+                        page.draw_rect(rect, color=(1, 0, 0), width=2)  # Red rectangle for visibility
+                except Exception:
+                    # Continue even if a single widget fails
+                    continue
+
+        # Save to output with proper PDF settings to preserve forms
+        doc.save(
+            output_path,
+            garbage=4,  # Maximum garbage collection
+            deflate=True,  # Compress
+            clean=True,  # Clean up
+            pretty=False  # Don't pretty-print (smaller file)
+        )
+        doc.close()
+        return True
+    except Exception as e:
+        print(f"Error creating fillable PDF: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -1586,3 +2145,32 @@ def create_filled_text(input_path, output_path, fields):
     except Exception as e:
         print(f"Error creating filled text: {e}")
         return False
+
+@api_view(['POST'])
+def make_fillable_pdf(request, doc_id):
+    """Convert the uploaded PDF into an Interactive fillable PDF by adding widgets for detected fields."""
+    try:
+        document = get_stored_document(doc_id)
+        if not document:
+            return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        input_path = document['file_path']
+        if not os.path.exists(input_path):
+            return Response({'error': 'Original file not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        output_filename = f"fillable_{os.path.basename(input_path)}"
+        output_path = os.path.join(settings.MEDIA_ROOT, 'processed', output_filename)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        success = create_fillable_pdf(input_path, output_path, document['fields'])
+        if success:
+            return Response({
+                'success': True,
+                'output_file': output_filename,
+                'download_url': f'/media/processed/{output_filename}',
+                'message': 'Interactive fillable PDF created'
+            })
+        else:
+            return Response({'error': 'Failed to create fillable PDF'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
