@@ -191,9 +191,9 @@ def suggest_field_content(request, doc_id):
 def fill_all_fields(request, doc_id):
     """Fill all empty fields with AI suggestions"""
     try:
-        # Get document from memory
-        from documents.views import documents_storage
-        document = documents_storage.get(str(doc_id))
+        # Get document from persistent storage
+        from documents.views import get_stored_document, save_document
+        document = get_stored_document(doc_id)
         if not document:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
         
@@ -226,10 +226,14 @@ def fill_all_fields(request, doc_id):
                     'type': field.get('field_type')
                 })
                 
-                # Update the field in the document
-                field['user_content'] = suggested_content
+                # Update the field in the document - store AI content separately
+                field['ai_content'] = suggested_content
                 field['ai_suggestion'] = suggested_content
                 field['ai_enhanced'] = True
+                print(f"AI filled field {field.get('id')}: '{suggested_content}'")
+        
+        # Save the document with AI content to persistent storage
+        save_document(document)
         
         return Response({
             'success': True,

@@ -24,6 +24,11 @@
                     <button class="btn btn-info preview-btn" id="previewBtn">
                         <i class="fas fa-eye"></i> Preview Document
                     </button>
+                    {% if document.fillable_pdf %}
+                    <a href="{{ document.fillable_pdf }}" class="btn btn-secondary" download="fillable_{{ document.filename }}">
+                        <i class="fas fa-download"></i> Download Fillable PDF
+                    </a>
+                    {% endif %}
                     <button class="btn btn-warning regenerate-btn" id="regenerateBtn">
                         <i class="fas fa-redo"></i> Generate & Download Filled PDF
                     </button>

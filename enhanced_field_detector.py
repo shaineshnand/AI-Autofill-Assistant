@@ -187,14 +187,13 @@ class EnhancedFieldDetector:
                 all_fields.extend(acroform_fields)
                 print(f"    Found {len(acroform_fields)} AcroForm fields")
                 
-                # SMART DETECTION: If AcroForm fields exist, ONLY use those (skip visual detection)
-                # AcroForm = real PDF form fields, visual detection often creates false positives
+                # SMART DETECTION: If AcroForm fields exist, use them but ALSO detect dotted lines
+                # AcroForm = real PDF form fields, but dotted lines need special detection
                 if len(acroform_fields) > 0:
-                    print(f"    ✓ AcroForm fields detected - skipping visual/text detection (smart mode)")
-                    continue  # Skip to next page, don't run visual detection
+                    print(f"    [OK] AcroForm fields detected - using AcroForm + dotted line detection")
                 
-                # Only run visual/text detection if NO AcroForm fields found
-                print(f"    No AcroForm fields - running visual detection")
+                # Always run dotted line detection (even with AcroForm fields)
+                print(f"    Running dotted line detection for fillable fields")
                 
                 # Method 2: Convert page to high-quality image
                 mat = fitz.Matrix(3.0, 3.0)  # Higher resolution for better detection
@@ -220,6 +219,18 @@ class EnhancedFieldDetector:
                 layout_fields = self._analyze_layout_fields(gray, page_text, page_num)
                 all_fields.extend(layout_fields)
                 print(f"    Found {len(layout_fields)} layout fields")
+                
+                # Method 6: Dotted line detection (for fillable fields)
+                # Use scale=1.0 to get exact PDF coordinates (no scaling)
+                dotted_fields = self._detect_dotted_leader_fields_pdf(page, page_num, scale=1.0)
+                if dotted_fields:
+                    print(f"    PDF dotted detection found {len(dotted_fields)} fields")
+                else:
+                    print(f"    PDF dotted detection failed, trying text-based fallback")
+                    # Fallback to text-based dotted detection
+                    dotted_fields = self._detect_dotted_leader_fields(page_text, gray.shape, page_num)
+                    print(f"    Text-based dotted detection found {len(dotted_fields)} fields")
+                all_fields.extend(dotted_fields)
             
             # Comprehensive deduplication and merging
             all_fields = self._merge_and_deduplicate_enhanced(all_fields)
@@ -908,6 +919,281 @@ class EnhancedFieldDetector:
         except Exception as e:
             print(f"Error processing text document: {e}")
             return {'extracted_text': '', 'fields': [], 'total_fields': 0, 'error': str(e)}
+
+    def _detect_dotted_leader_fields(self, page_text: str, image_shape: Tuple, page_num: int = 0) -> List[FormField]:
+        """Detect dotted leader placeholders like sequences of '.' or '…' in text and
+        estimate input rectangles at those positions. Coordinates are in 3x pixel space.
+        """
+        fields: List[FormField] = []
+        try:
+            if not page_text:
+                return fields
+
+            lines = page_text.split('\n')
+            img_h = image_shape[0] if isinstance(image_shape, tuple) and len(image_shape) >= 1 else 2400
+            base_y = 50
+            line_height = 30
+
+            # Match various dotted line patterns including Unicode characters and underscores
+            # This covers: ..., ……, ……………, ______, _____, etc.
+            dotted_pattern = re.compile(r'(?:\.{3,}|…{2,}|_{3,}|-{3,})')
+            field_id_counter = 0
+
+            for line_idx, raw_line in enumerate(lines):
+                line = raw_line.rstrip()
+                if not line or ('.' not in line and '…' not in line and '_' not in line and '-' not in line):
+                    continue
+
+                for match in dotted_pattern.finditer(line):
+                    start_pos = match.start()
+                    end_pos = match.end()
+                    run_text = line[start_pos:end_pos]
+
+                    # Context
+                    context_before = line[max(0, start_pos-40):start_pos]
+                    context_after = line[end_pos:min(len(line), end_pos+40)]
+                    combined_context = (context_before + ' ' + context_after).lower()
+
+                    # Type guess
+                    if 'day' in combined_context and 'month' not in combined_context:
+                        field_type = 'day'
+                        est_width = 80
+                    elif 'month' in combined_context:
+                        field_type = 'month'
+                        est_width = 140
+                    elif 'year' in combined_context or '20' in combined_context:
+                        field_type = 'year'
+                        est_width = 100
+                    elif any(k in combined_context for k in ['employer', 'employee', 'company']):
+                        field_type = 'name'
+                        est_width = 260
+                    else:
+                        field_type = 'text'
+                        est_width = 200
+
+                    # Coordinate estimate from character positions
+                    # Use more accurate estimation based on actual text layout
+                    x_est = 50 + max(0, start_pos) * 8  # Increased character width for better accuracy
+                    y_est = base_y + line_idx * line_height
+                    
+                    # Add some randomness to avoid overlapping widgets
+                    x_est += (field_id_counter % 3) * 2
+                    width_est = max(80, min(est_width, 400))
+                    height_est = 25
+                    y_est = min(max(0, y_est), max(0, img_h - height_est))
+
+                    field = FormField(
+                        id=f"dots_field_p{page_num}_{field_id_counter}",
+                        field_type=field_type,
+                        x_position=x_est,
+                        y_position=y_est,
+                        width=width_est,
+                        height=height_est,
+                        page_number=page_num,
+                        context=f"{context_before} [{run_text}] {context_after}"[:160],
+                        confidence=0.85,
+                        detection_method="text_based_dotted_lines"
+                    )
+                    field.page = page_num
+                    # Store exact coordinates for widget creation
+                    field.x1 = x_est
+                    field.y1 = y_est
+                    field.x2 = x_est + width_est
+                    field.y2 = y_est + height_est
+                    fields.append(field)
+                    field_id_counter += 1
+
+            return fields
+        except Exception as e:
+            print(f"Error in dotted leader detection: {e}")
+            return fields
+
+    def _detect_dotted_leader_fields_pdf(self, page, page_num: int, scale: float = 3.0) -> List[FormField]:
+        """Detect dotted leader placeholders using PDF raw text positions for accurate boxes.
+
+        We scan spans and search for sequences of '.' or '…', then map their bbox to a field rect
+        with a small height and a reasonable width based on run length.
+        Returned coordinates are scaled by 'scale' to match image-space used downstream.
+        """
+        fields: List[FormField] = []
+        try:
+            import re
+            # Get raw text dict for precise positioning
+            text_dict = page.get_text('rawdict')
+            if not text_dict or 'blocks' not in text_dict:
+                return fields
+
+            # Match various dotted line patterns including Unicode characters and underscores
+            # This covers: ..., ……, ……………, ______, _____, etc.
+            pattern = re.compile(r'(?:\.{3,}|…{2,}|_{3,}|-{3,})')
+            field_id = 0
+            print(f"    Scanning PDF text for dotted patterns...")
+            
+            # Debug: Show all text being scanned
+            all_text = page.get_text()
+            print(f"    PDF text content: '{all_text[:200]}...'")
+            
+            # Count dots and ellipsis in the text
+            dot_count = all_text.count('.')
+            ellipsis_count = all_text.count('…')
+            print(f"    Found {dot_count} dots and {ellipsis_count} ellipsis characters")
+
+            for block in text_dict['blocks']:
+                if 'lines' not in block:
+                    continue
+                
+                for line in block['lines']:
+                    if 'spans' not in line:
+                        continue
+                    
+                    # Build text from spans and track character positions
+                    built = ""
+                    char_positions = []
+                    for span in line['spans']:
+                        if 'text' not in span or 'bbox' not in span:
+                            continue
+                        t = span['text']
+                        bbox = span['bbox']
+                        if not t or not bbox:
+                            continue
+                        
+                        # Approximate per-character width
+                        if len(t) > 0:
+                            per_char = (bbox[2] - bbox[0]) / len(t)
+                        else:
+                            per_char = 8  # fallback
+                        
+                        # Map each character to its approximate position
+                        cx = bbox[0]
+                        for char in t:
+                            char_positions.append((cx, bbox[1], bbox[2], bbox[3]))
+                            cx += per_char
+                        built += t
+                    if not built:
+                        continue
+
+                    # Search dotted runs within built - more lenient approach
+                    if built.strip():
+                        # Check for any dotted patterns (more lenient matching)
+                        has_dots = any(char in built for char in ['.', '…', '_', '-'])
+                        if has_dots:
+                            print(f"    Found text with potential fillable patterns: '{built.strip()[:50]}...'")
+                            matches = list(pattern.finditer(built))
+                            print(f"    Strict pattern matches found: {len(matches)}")
+                            
+                            # If no matches with strict pattern, try more lenient patterns
+                            if len(matches) == 0:
+                                print(f"    No strict matches, trying lenient pattern matching...")
+                                # Try individual character patterns
+                                dot_matches = []
+                                i = 0
+                                while i < len(built):
+                                    char = built[i]
+                                    if char in ['.', '…', '_', '-']:
+                                        # Find consecutive runs of the same character
+                                        start = i
+                                        while i < len(built) and built[i] == char:
+                                            i += 1
+                                        if i - start >= 3:  # At least 3 consecutive characters
+                                            dot_matches.append((start, i, char))
+                                            print(f"      Found {char} run: '{built[start:i]}' at {start}-{i}")
+                                    else:
+                                        i += 1
+                                
+                                print(f"    Found {len(dot_matches)} consecutive character runs")
+                                # Convert to match objects
+                                for start, end, char in dot_matches:
+                                    class SimpleMatch:
+                                        def __init__(self, start, end):
+                                            self._start = start
+                                            self._end = end
+                                        def start(self): return self._start
+                                        def end(self): return self._end
+                                    matches.append(SimpleMatch(start, end))
+                            
+                            for i, m in enumerate(matches):
+                                print(f"      Match {i+1}: '{built[m.start():m.end()]}' at {m.start()}-{m.end()}")
+                            print(f"    Character positions available: {len(char_positions)}")
+                            if len(char_positions) > 0:
+                                print(f"    First char position: {char_positions[0]}")
+                                print(f"    Last char position: {char_positions[-1]}")
+                    
+                    # Process all matches (both strict and lenient)
+                    for m in matches:
+                        s_idx, e_idx = m.start(), m.end()
+                        if s_idx >= len(char_positions):
+                            print(f"        Skipping match - start index {s_idx} >= char_positions length {len(char_positions)}")
+                            continue
+                        
+                        start_char = char_positions[s_idx]
+                        end_char = char_positions[min(e_idx-1, len(char_positions)-1)]
+                        
+                        print(f"        Processing match: '{built[s_idx:e_idx]}'")
+                        print(f"        Start char: {start_char}")
+                        print(f"        End char: {end_char}")
+                        
+                        # Field rectangle from character positions (use scale=1.0 for exact PDF coordinates)
+                        x0 = start_char[0]  # No scaling - use exact PDF coordinates
+                        y0 = start_char[1]  # No scaling - use exact PDF coordinates
+                        x1 = end_char[2]    # No scaling - use exact PDF coordinates
+                        y1 = end_char[3]    # No scaling - use exact PDF coordinates
+                        
+                        print(f"        Raw coordinates: x0={x0}, y0={y0}, x1={x1}, y1={y1}")
+                        
+                        # Clamp to page bounds (no scaling needed since we're using exact PDF coordinates)
+                        page_rect = page.rect
+                        x0 = max(0, min(x0, page_rect.width))
+                        y0 = max(0, min(y0, page_rect.height))
+                        x1 = max(x0 + 20, min(x1, page_rect.width))  # Minimum width of 20 points
+                        y1 = max(y0 + 10, min(y1, page_rect.height))  # Minimum height of 10 points
+                        
+                        print(f"        Clamped coordinates: x0={x0}, y0={y0}, x1={x1}, y1={y1}")
+                        
+                        # Context from surrounding text
+                        context_start = max(0, s_idx - 30)
+                        context_end = min(len(built), e_idx + 30)
+                        context = built[context_start:context_end]
+                        
+                        # Type classification
+                        context_lower = context.lower()
+                        if 'day' in context_lower and 'month' not in context_lower:
+                            field_type = 'day'
+                        elif 'month' in context_lower:
+                            field_type = 'month'
+                        elif 'year' in context_lower or '20' in context_lower:
+                            field_type = 'year'
+                        elif any(k in context_lower for k in ['employer', 'employee', 'company']):
+                            field_type = 'name'
+                        else:
+                            field_type = 'text'
+                        
+                        field = FormField(
+                            id=f"dots_field_p{page_num}_{field_id}",
+                            field_type=field_type,
+                            x_position=int(x0),
+                            y_position=int(y0),
+                            width=int(x1 - x0),
+                            height=int(y1 - y0),
+                            page_number=page_num,
+                            context=context[:160],
+                            confidence=0.9,
+                            detection_method="pdf_dotted_lines"
+                        )
+                        # Store exact coordinates for widget creation
+                        field.x1 = x0
+                        field.y1 = y0
+                        field.x2 = x1
+                        field.y2 = y1
+                        field.page = page_num
+                        fields.append(field)
+                        field_id += 1
+                        
+                        print(f"        Created field: {field.id} at ({x0:.1f}, {y0:.1f}) size ({x1-x0:.1f}x{y1-y0:.1f})")
+
+            return fields
+        except Exception as e:
+            print(f"Error in PDF dotted leader detection: {e}")
+            return fields
 
 def convert_form_fields_to_dict(fields: List[FormField]) -> List[Dict]:
     """Convert FormField objects to dictionary format for API compatibility"""

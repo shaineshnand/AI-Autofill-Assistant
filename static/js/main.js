@@ -295,6 +295,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.training) {
                     showAutomaticTrainingResults(data.training);
                 }
+                // If backend created a fillable PDF, immediately expose link and auto-download once
+                try {
+                    const fillableUrl = data?.document?.fillable_pdf;
+                    if (fillableUrl) {
+                        // Add a visible link/button
+                        const actions = document.querySelector('.document-actions') || document.body;
+                        const link = document.createElement('a');
+                        link.href = fillableUrl;
+                        link.textContent = 'Download Fillable PDF';
+                        link.className = 'btn btn-primary';
+                        link.style.marginTop = '10px';
+                        actions.appendChild(link);
+                        // Trigger a one-time auto download in a new tab
+                        window.open(fillableUrl, '_blank');
+                    }
+                } catch (e) {
+                    console.warn('Auto-download fillable PDF failed:', e);
+                }
                 // Redirect to main page to view the uploaded document
                 window.location.href = '/';
             } else {
