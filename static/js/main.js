@@ -1,7 +1,71 @@
+// Global variables for Sejda workflow
+let sejdaWorkflowData = {};
+let currentStep = 1;
+
+// Helper function to get CSRF token
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// Sejda workflow functions
+function showSejdaModal() {
+    document.getElementById('sejdaWorkflowModal').style.display = 'block';
+    document.body.style.overflow = 'hidden'; // Prevent background scroll
+    nextStep(1);
+}
+
+function closeSejdaModal() {
+    document.getElementById('sejdaWorkflowModal').style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+function nextStep(stepNum) {
+    // Hide all steps
+    document.querySelectorAll('.step').forEach(step => {
+        step.classList.remove('active');
+    });
+    
+    // Show current step
+    const stepElement = document.getElementById(`step${stepNum}`);
+    if (stepElement) {
+        stepElement.classList.add('active');
+        currentStep = stepNum;
+        
+        // Auto-progress for step 1
+        if (stepNum === 1) {
+            const progress = document.getElementById('progress1');
+            if (progress) {
+                progress.style.width = '100%';
+                setTimeout(() => nextStep(2), 3000); // Auto-advance after 3 seconds
+            }
+        }
+    }
+}
+
+// OLD: Manual Sejda workflow completion (no longer used - now 100% automatic)
+/*
+async function completeSejdaWorkflow() {
+    // This function is no longer needed - Sejda workflow is now fully automatic!
+    // Keeping for reference only
+}
+*/
+
 document.addEventListener('DOMContentLoaded', function() {
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
     const uploadForm = document.getElementById('uploadForm');
+    const normalUploadBtn = document.getElementById('normalUploadBtn');
     const chatInput = document.getElementById('chatInput');
     const sendBtn = document.getElementById('sendBtn');
     const chatMessages = document.getElementById('chatMessages');
@@ -17,7 +81,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // File upload functionality
     if (uploadArea && fileInput) {
-        uploadArea.addEventListener('click', () => fileInput.click());
+        // Upload button - triggers automatic Sejda workflow!
+        if (normalUploadBtn) {
+            normalUploadBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                fileInput.click();
+            });
+        }
+        
+        // Default click behavior (for drag and drop area)
+        uploadArea.addEventListener('click', (e) => {
+            if (e.target === uploadArea || e.target.classList.contains('upload-icon') || 
+                e.target.classList.contains('upload-text') || e.target.classList.contains('upload-subtext')) {
+                fileInput.click();
+            }
+        });
         
         uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -75,6 +153,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 uploadFile(file);
             }
         });
+        
     }
 
     // Start over functionality
@@ -270,11 +349,77 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Upload file function
+    // Upload file function - NOW WITH AUTOMATIC SEJDA WORKFLOW!
     async function uploadFile(file) {
-        // Show loading indicator
+        const isPDF = file.name.toLowerCase().endsWith('.pdf');
+        
+        // Show loading indicator with Sejda workflow message
         const uploadArea = document.getElementById('uploadArea');
-        if (uploadArea) {
+        if (uploadArea && isPDF) {
+            // Show live processing window for PDF
+            uploadArea.innerHTML = `
+                <div style="max-width: 800px; margin: 0 auto; padding: 30px;">
+                    <h2 style="text-align: center; margin-bottom: 30px;">
+                        <i class="fas fa-robot" style="color: #007bff;"></i> AI Processing Your PDF
+                    </h2>
+                    
+                    <!-- Live Status Box -->
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                color: white; padding: 30px; border-radius: 15px; 
+                                box-shadow: 0 10px 40px rgba(0,0,0,0.2); margin-bottom: 30px;">
+                        
+                        <div style="font-size: 1.2em; margin-bottom: 20px; text-align: center;">
+                            <i class="fas fa-spinner fa-spin"></i> 
+                            <span id="statusMessage">Uploading and analyzing PDF...</span>
+                        </div>
+                        
+                        <!-- Progress Steps -->
+                        <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px;">
+                            <div style="display: flex; flex-direction: column; gap: 15px;">
+                                <div id="step1" style="display: flex; align-items: center; gap: 10px;">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <span>📄 Reading PDF and detecting fields...</span>
+                                </div>
+                                <div id="step2" style="display: none; align-items: center; gap: 10px;">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <span>🤖 Generating AI content for each field...</span>
+                                </div>
+                                <div id="step3" style="display: none; align-items: center; gap: 10px;">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <span>✨ Opening Sejda Desktop (watch your taskbar!)...</span>
+                                </div>
+                                <div id="step4" style="display: none; align-items: center; gap: 10px;">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <span>✍️ AI is filling fields automatically...</span>
+                                </div>
+                                <div id="step5" style="display: none; align-items: center; gap: 10px;">
+                                    <i class="fas fa-spinner fa-spin"></i>
+                                    <span>💾 Saving filled PDF...</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 20px; text-align: center; font-size: 0.9em; opacity: 0.9;">
+                            <i class="fas fa-info-circle"></i> 
+                            <strong>Tip:</strong> Watch Sejda Desktop window open automatically and see AI fill your form!
+                        </div>
+                    </div>
+                    
+                    <!-- What's Happening Section -->
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; border-left: 4px solid #007bff;">
+                        <h4 style="margin-top: 0;">
+                            <i class="fas fa-eye"></i> What's Happening Right Now:
+                        </h4>
+                        <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
+                            <li>🔍 Sejda Desktop is analyzing your PDF structure</li>
+                            <li>🤖 Our AI is understanding the context of each field</li>
+                            <li>✨ Fields are being filled with intelligent data</li>
+                            <li>📦 Everything is being saved automatically</li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+        } else if (uploadArea) {
             uploadArea.innerHTML = '<i class="fas fa-spinner fa-spin"></i><br>Processing document...';
         }
         
@@ -291,33 +436,148 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
             
             if (data.success) {
-                // Show automatic training results if available
-                if (data.training) {
-                    showAutomaticTrainingResults(data.training);
-                }
-                // If backend created a fillable PDF, immediately expose link and auto-download once
-                try {
-                    const fillableUrl = data?.document?.fillable_pdf;
-                    if (fillableUrl) {
-                        // Add a visible link/button
-                        const actions = document.querySelector('.document-actions') || document.body;
-                        const link = document.createElement('a');
-                        link.href = fillableUrl;
-                        link.textContent = 'Download Fillable PDF';
-                        link.className = 'btn btn-primary';
-                        link.style.marginTop = '10px';
-                        actions.appendChild(link);
-                        // Trigger a one-time auto download in a new tab
-                        window.open(fillableUrl, '_blank');
-                    }
-                } catch (e) {
-                    console.warn('Auto-download fillable PDF failed:', e);
-                }
-                // Redirect to main page to view the uploaded document
-                window.location.href = '/';
+                   // Check if Sejda conversion workflow completed (CHECK THIS FIRST!)
+                   if (data.sejda_converted && data.auto_download) {
+                       // Sejda workflow completed! Show success and auto-download
+                       console.log('✅ PDF filled automatically! Auto-downloading...');
+                       
+                       if (uploadArea) {
+                           uploadArea.innerHTML = `
+                               <div style="text-align: center; padding: 40px;">
+                                   <i class="fas fa-check-circle" style="color: #28a745; font-size: 64px; margin-bottom: 20px;"></i>
+                                   <h2 style="color: #28a745; margin-bottom: 10px;">🎉 Success!</h2>
+                                   <h3 style="margin-bottom: 20px;">PDF Filled Automatically!</h3>
+                                   <p style="color: #666; margin-bottom: 30px;">
+                                       ✓ AI read your document<br>
+                                       ✓ Sejda detected all fields<br>
+                                       ✓ AI filled everything<br>
+                                       ✓ PDF saved and ready!
+                                   </p>
+                                   <div style="margin-bottom: 30px;">
+                                       <iframe src="${data.sejda_fillable_url}" 
+                                               style="width: 100%; height: 500px; border: 2px solid #ddd; border-radius: 8px;"
+                                               title="Filled PDF Preview"></iframe>
+                                   </div>
+                                   <div>
+                                       <a href="${data.sejda_fillable_url}" 
+                                          class="btn btn-success btn-large" 
+                                          download
+                                          style="font-size: 1.2em; padding: 15px 40px; margin-right: 10px;">
+                                           <i class="fas fa-download"></i> Download Filled PDF
+                                       </a>
+                                       <a href="${data.sejda_fillable_url}" 
+                                          target="_blank"
+                                          class="btn btn-primary btn-large" 
+                                          style="font-size: 1.2em; padding: 15px 40px;">
+                                           <i class="fas fa-external-link-alt"></i> Open in New Tab
+                                       </a>
+                                   </div>
+                               </div>
+                           `;
+                       }
+                       
+                       // Auto-download the fillable PDF immediately
+                       console.log('Starting auto-download...');
+                       const downloadLink = document.createElement('a');
+                       downloadLink.href = data.sejda_fillable_url;
+                       downloadLink.download = 'filled_contract.pdf';
+                       document.body.appendChild(downloadLink);
+                       downloadLink.click();
+                       document.body.removeChild(downloadLink);
+                       
+                       // Also open in new tab for preview
+                       setTimeout(() => {
+                           window.open(data.sejda_fillable_url, '_blank');
+                       }, 1000);
+                       
+                       return;
+                   }
+                   
+                   // Check if Sejda opened (but user needs to fill manually)
+                   if (data.sejda_converted && !data.auto_download) {
+                       // Sejda opened - show AI data for user to copy
+                       console.log('✅ Sejda opened! Showing AI data...');
+                       
+                       if (uploadArea) {
+                           // Get AI data from the document
+                           const aiData = data.document?.fields?.reduce((acc, field) => {
+                               if (field.ai_content) {
+                                   acc[field.id] = field.ai_content;
+                               }
+                               return acc;
+                           }, {}) || {};
+                           
+                           let aiDataHtml = '';
+                           if (Object.keys(aiData).length > 0) {
+                               aiDataHtml = `
+                                   <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: left;">
+                                       <h4 style="margin-top: 0; color: #007bff;">
+                                           <i class="fas fa-robot"></i> AI Generated Data (Copy These Values):
+                                       </h4>
+                                       <div style="max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.9em;">
+                                           ${Object.entries(aiData).map(([fieldId, value], index) => 
+                                               `<div style="margin-bottom: 8px; padding: 5px; background: white; border-radius: 4px;">
+                                                   <strong>${index + 1}.</strong> ${fieldId}: <span style="color: #28a745;">${value}</span>
+                                               </div>`
+                                           ).join('')}
+                                       </div>
+                                   </div>
+                               `;
+                           }
+                           
+                           uploadArea.innerHTML = `
+                               <div style="text-align: center; padding: 40px;">
+                                   <i class="fas fa-external-link-alt" style="color: #007bff; font-size: 64px; margin-bottom: 20px;"></i>
+                                   <h2 style="color: #007bff; margin-bottom: 10px;">📄 Sejda Desktop Opened!</h2>
+                                   <h3 style="margin-bottom: 20px;">Your PDF is ready for filling</h3>
+                                   <p style="color: #666; margin-bottom: 30px;">
+                                       ✓ PDF opened in Sejda Desktop<br>
+                                       ✓ AI analyzed your document<br>
+                                       ✓ Ready for you to fill manually<br>
+                                       ✓ Copy the data below into Sejda!
+                                   </p>
+                                   ${aiDataHtml}
+                                   <div style="background: #e3f2fd; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                                       <h4 style="margin-top: 0; color: #1976d2;">
+                                           <i class="fas fa-info-circle"></i> Instructions:
+                                       </h4>
+                                       <ol style="text-align: left; margin: 0; padding-left: 20px;">
+                                           <li>In Sejda Desktop, click <strong>"Forms"</strong> → <strong>"Detect Form Fields"</strong></li>
+                                           <li>Copy the AI data from above and paste into each field</li>
+                                           <li>Save the PDF with <strong>Ctrl+S</strong></li>
+                                           <li>Close Sejda when done</li>
+                                       </ol>
+                                   </div>
+                                   <div>
+                                       <button onclick="window.location.href='/'" 
+                                               class="btn btn-primary btn-large" 
+                                               style="font-size: 1.2em; padding: 15px 40px;">
+                                           <i class="fas fa-upload"></i> Upload Another PDF
+                                       </button>
+                                   </div>
+                               </div>
+                           `;
+                       }
+                       
+                       return;
+                   }
+                
+                   // Regular upload flow (if Sejda not available)
+                   if (data.training) {
+                       showAutomaticTrainingResults(data.training);
+                   }
+                   
+                   if (data?.document?.fillable_pdf) {
+                       const fillableUrl = data.document.fillable_pdf;
+                       window.open(fillableUrl, '_blank');
+                   }
+                   
+                   // Go back to upload page immediately
+                   setTimeout(() => {
+                       window.location.href = '/';
+                   }, 2000);
             } else {
                 alert('Upload failed: ' + (data.error || 'Unknown error'));
-                // Reset upload area
                 if (uploadArea) {
                     uploadArea.innerHTML = `
                         <i class="fas fa-cloud-upload-alt upload-icon"></i>
@@ -329,7 +589,6 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (error) {
             console.error('Upload error:', error);
             alert('Upload failed: ' + error.message);
-            // Reset upload area
             if (uploadArea) {
                 uploadArea.innerHTML = `
                     <i class="fas fa-cloud-upload-alt upload-icon"></i>

@@ -189,13 +189,32 @@ def suggest_field_content(request, doc_id):
 
 @api_view(['POST'])
 def fill_all_fields(request, doc_id):
-    """Fill all empty fields with AI suggestions"""
+    """Fill all empty fields with AI suggestions - NOW WITH CLEAN SEJDA!"""
     try:
         # Get document from persistent storage
         from documents.views import get_stored_document, save_document
         document = get_stored_document(doc_id)
         if not document:
             return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if we should use CLEAN Sejda workflow
+        from sejda_direct_fill import SejdaDirectFill
+        try:
+            import pywinauto
+            PYWINAUTO_AVAILABLE = True
+        except:
+            PYWINAUTO_AVAILABLE = False
+        
+        use_sejda_clean = False
+        sejda_processor = None
+        
+        if document.get('file_path', '').lower().endswith('.pdf'):
+            sejda_processor = SejdaDirectFill()
+            if sejda_processor.sejda_path and PYWINAUTO_AVAILABLE:
+                use_sejda_clean = True
+                print("\n" + "="*60)
+                print("🎯 CLEAN SEJDA WORKFLOW ACTIVATED!")
+                print("="*60)
         
         # Overwrite flag: when true, fill even fields that already have content
         try:
@@ -234,6 +253,54 @@ def fill_all_fields(request, doc_id):
         
         # Save the document with AI content to persistent storage
         save_document(document)
+        
+        # If CLEAN Sejda workflow is available, trigger it NOW!
+        if use_sejda_clean and sejda_processor:
+            print("\n🚀 Triggering CLEAN Sejda workflow...")
+            
+            # Prepare AI data for Sejda
+            ai_data_for_sejda = {}
+            for field in document['fields']:
+                ai_value = field.get('ai_content') or field.get('ai_suggestion', '')
+                if ai_value:
+                    # Use field ID as key
+                    ai_data_for_sejda[field['id']] = ai_value
+            
+            # Get file paths
+            input_pdf = document.get('file_path', '')
+            output_pdf = input_pdf.replace('uploads/', 'processed/sejda_filled_')
+            
+            # Make sure paths are absolute
+            from django.conf import settings
+            import os
+            input_pdf_full = os.path.join(settings.MEDIA_ROOT, input_pdf) if not os.path.isabs(input_pdf) else input_pdf
+            output_pdf_full = os.path.join(settings.MEDIA_ROOT, output_pdf)
+            
+            print(f"   📂 Input PDF: {input_pdf_full}")
+            print(f"   💾 Output PDF: {output_pdf_full}")
+            print(f"   🤖 AI data: {len(ai_data_for_sejda)} fields")
+            
+            # Execute CLEAN Sejda workflow
+            result = sejda_processor.process_pdf_clean(input_pdf_full, ai_data_for_sejda, output_pdf_full)
+            
+            if result['success']:
+                print("✅ CLEAN Sejda workflow completed!")
+                print(f"   📄 Filled PDF saved: {output_pdf_full}")
+                
+                # Update document with Sejda-filled PDF path
+                document['sejda_filled_pdf'] = output_pdf
+                save_document(document)
+                
+                return Response({
+                    'success': True,
+                    'filled_fields': filled_fields,
+                    'sejda_filled': True,
+                    'sejda_pdf_url': f"/media/{output_pdf}",
+                    'message': f'✅ Filled {len(filled_fields)} fields with AI and saved via Sejda!'
+                })
+            else:
+                print(f"⚠️  Sejda workflow failed: {result.get('error')}")
+                print("   → Returning AI-filled data without Sejda")
         
         return Response({
             'success': True,

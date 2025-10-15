@@ -7,12 +7,138 @@
         {% if not document %}
             <div class="upload-area" id="uploadArea">
                 <i class="fas fa-cloud-upload-alt upload-icon"></i>
-                <div class="upload-text">Drop your document here or click to upload</div>
-                <div class="upload-subtext">Supports PDF, Word, Text, Images, and more document formats</div>
+                <div class="upload-text">Drop your PDF here or click to upload</div>
+                <div class="upload-subtext">🚀 FULLY AUTOMATIC: Upload → Sejda Opens → AI Fills → Done!</div>
+                <div class="upload-options" style="margin-top: 15px;">
+                    <button class="btn btn-primary upload-btn" id="normalUploadBtn" style="font-size: 1.1em; padding: 12px 24px;">
+                        <i class="fas fa-magic"></i> Upload PDF (100% Automatic!)
+                    </button>
+                </div>
+                <div class="upload-hint" style="margin-top: 15px; font-size: 0.95em; color: #28a745; font-weight: 500;">
+                    <i class="fas fa-check-circle"></i> 
+                    <strong>Sit back and relax:</strong> Upload → AI reads → Sejda detects → AI fills → You download!
+                </div>
                 <form id="uploadForm" method="post" action="/upload/" enctype="multipart/form-data" style="display: none;">
                     {% csrf_token %}
-                    <input type="file" id="fileInput" name="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.tif,.webp,.doc,.docx,.txt,.rtf">
+                    <input type="file" id="fileInput" name="file" accept=".pdf">
                 </form>
+            </div>
+            
+            <!-- Sejda Workflow Modal -->
+            <div id="sejdaWorkflowModal" class="modal" style="display: none;">
+                <div class="modal-content-large">
+                    <div class="modal-header">
+                        <h2><i class="fas fa-robot"></i> Sejda Desktop Workflow</h2>
+                        <span class="close-modal" onclick="closeSejdaModal()">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <div class="workflow-steps">
+                            <div class="step active" id="step1">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <h3>📂 Opening Sejda Desktop...</h3>
+                                    <p class="step-description">We're opening your PDF in Sejda Desktop. Please wait...</p>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" id="progress1"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="step" id="step2">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <h3>🎯 Click "Fill & Sign"</h3>
+                                    <p class="step-description">In the Sejda window that just opened:</p>
+                                    <div class="instruction-box">
+                                        <img src="/static/images/sejda-fill-sign.png" alt="Fill & Sign" style="max-width: 100%; display: none;" onerror="this.style.display='none'">
+                                        <ul class="instruction-list">
+                                            <li>Look at the top menu bar</li>
+                                            <li>Click on <strong>"Fill & Sign"</strong></li>
+                                        </ul>
+                                    </div>
+                                    <button class="btn btn-success btn-large" onclick="nextStep(3)">
+                                        ✓ I clicked "Fill & Sign"
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="step" id="step3">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <h3>🔍 Click "Add Text" or "Detect Form Fields"</h3>
+                                    <p class="step-description">This tells Sejda to find all the blank spaces:</p>
+                                    <div class="instruction-box">
+                                        <ul class="instruction-list">
+                                            <li>Look for a button that says <strong>"Add Text"</strong> or <strong>"Detect Form Fields"</strong></li>
+                                            <li>Click it and wait for blue boxes to appear on your PDF</li>
+                                        </ul>
+                                    </div>
+                                    <button class="btn btn-success btn-large" onclick="nextStep(4)">
+                                        ✓ I see blue boxes on my PDF
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="step" id="step4">
+                                <div class="step-number">4</div>
+                                <div class="step-content">
+                                    <h3>💾 Save the PDF</h3>
+                                    <p class="step-description">Save the fillable PDF:</p>
+                                    <div class="instruction-box">
+                                        <ul class="instruction-list">
+                                            <li>Press <kbd>Ctrl</kbd> + <kbd>S</kbd> on your keyboard</li>
+                                            <li>Or click <strong>File → Save</strong></li>
+                                            <li>Wait for the save to complete</li>
+                                        </ul>
+                                    </div>
+                                    <button class="btn btn-success btn-large" onclick="nextStep(5)">
+                                        ✓ PDF Saved
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="step" id="step5">
+                                <div class="step-number">5</div>
+                                <div class="step-content">
+                                    <h3>🚪 Close Sejda</h3>
+                                    <p class="step-description">We're almost done!</p>
+                                    <div class="instruction-box">
+                                        <ul class="instruction-list">
+                                            <li>Close the Sejda Desktop window</li>
+                                            <li>Or press <kbd>Alt</kbd> + <kbd>F4</kbd></li>
+                                        </ul>
+                                    </div>
+                                    <button class="btn btn-success btn-large" onclick="completeSejdaWorkflow()">
+                                        ✓ Sejda Closed - Extract & Fill with AI
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="step" id="step6">
+                                <div class="step-number">6</div>
+                                <div class="step-content">
+                                    <h3>🤖 AI is Filling Your PDF...</h3>
+                                    <p class="step-description">Extracting fields from Sejda and filling with AI data...</p>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill progress-animated" id="progress6"></div>
+                                    </div>
+                                    <div id="aiProgress"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="step" id="step7">
+                                <div class="step-number">✓</div>
+                                <div class="step-content">
+                                    <h3>🎉 Success!</h3>
+                                    <p class="step-description">Your PDF is ready with AI-filled data!</p>
+                                    <button class="btn btn-success btn-large" id="downloadFinalPdf">
+                                        <i class="fas fa-download"></i> Download Filled PDF
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         {% else %}
             <div class="document-info">

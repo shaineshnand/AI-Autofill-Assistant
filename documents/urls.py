@@ -5,6 +5,8 @@ from . import universal_views
 urlpatterns = [
     path('', views.index, name='index'),
     path('upload/', views.upload_document, name='upload_document'),
+    path('upload-fillable/', views.upload_fillable_pdf, name='upload_fillable_pdf'),
+    path('upload-sejda/', views.upload_document_with_sejda, name='upload_document_with_sejda'),
     path('clear-session/', views.clear_session, name='clear_session'),
     path('<uuid:doc_id>/', views.get_document, name='get_document'),
     path('<uuid:doc_id>/preview/', views.preview_document, name='preview_document'),

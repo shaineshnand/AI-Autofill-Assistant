@@ -18,6 +18,19 @@ from reportlab.lib.pagesizes import letter
 from ollama_integration import AIDocumentProcessor, OllamaClient
 from PIL import Image
 import fitz  # PyMuPDF for PDF processing
+# Import Sejda automation modules
+try:
+    from sejda_simple_automation import SejdaSimpleAutomation
+    SEJDA_SIMPLE_AVAILABLE = True
+except ImportError:
+    SEJDA_SIMPLE_AVAILABLE = False
+
+# Check if pywinauto is available for Sejda automation
+try:
+    import pywinauto
+    PYWINAUTO_AVAILABLE = True
+except ImportError:
+    PYWINAUTO_AVAILABLE = False
 # Use enhanced field detector for better field recognition
 try:
     from enhanced_field_detector import EnhancedFieldDetector, convert_form_fields_to_dict
@@ -57,10 +70,11 @@ documents_storage = {}
 chat_sessions = {}
 
 def get_stored_document(doc_id):
-    """
-    Get document from persistent storage first, then fall back to memory storage.
-    This ensures documents survive server reloads.
-    """
+    # 
+    # Get document from persistent storage first, then fall back to memory storage.
+    # This ensures documents survive server reloads.
+    
+    
     doc_id = str(doc_id)
     
     # Try persistent storage first (survives reloads)
@@ -77,10 +91,11 @@ def get_stored_document(doc_id):
     return documents_storage.get(doc_id)
 
 def save_document(document):
-    """
-    Save document to both persistent storage and memory.
-    This ensures documents survive server reloads.
-    """
+    # 
+    # Save document to both persistent storage and memory.
+    # This ensures documents survive server reloads.
+    
+    
     doc_id = str(document.get('id'))
     
     # Save to persistent storage (survives reloads)
@@ -93,9 +108,10 @@ def save_document(document):
     documents_storage[doc_id] = document
 
 def auto_train_from_document(file_path, document, result):
-    """
-    Automatically train the Universal Document Processor from uploaded document
-    """
+    # 
+    # Automatically train the Universal Document Processor from uploaded document
+    
+    
     if not universal_processor:
         print("Universal processor not available")
         return None
@@ -217,9 +233,10 @@ def auto_train_from_document(file_path, document, result):
         return None
 
 def map_field_type_to_universal(field_type, field_id=''):
-    """
-    Map detected field types to universal field types
-    """
+    # 
+    # Map detected field types to universal field types
+    
+    
     # Ensure field_id is a string
     if isinstance(field_id, int):
         field_id = str(field_id)
@@ -317,7 +334,7 @@ class DocumentProcessor:
         return self._intelligent_filler
         
     def pdf_to_images(self, pdf_path):
-        """Convert all PDF pages to images for processing"""
+        # Convert all PDF pages to images for processing
         try:
             # Open PDF
             pdf_document = fitz.open(pdf_path)
@@ -343,7 +360,7 @@ class DocumentProcessor:
             raise Exception(f"Error converting PDF to images: {str(e)}")
     
     def process_document(self, file_path):
-        """Process uploaded document using enhanced field detection"""
+        # Process uploaded document using enhanced field detection
         try:
             # Use enhanced processor for better field detection
             result = self.enhanced_processor.process_document(file_path)
@@ -365,7 +382,7 @@ class DocumentProcessor:
             return self._process_document_fallback(file_path)
     
     def _process_document_fallback(self, file_path):
-        """Fallback document processing method - handles multi-page PDFs"""
+        # Fallback document processing method - handles multi-page PDFs
         try:
             # Check file extension
             file_ext = os.path.splitext(file_path)[1].lower()
@@ -426,7 +443,7 @@ class DocumentProcessor:
             raise Exception(f"Error processing document: {str(e)}")
     
     def find_blank_spaces(self, gray_image, page_num=0):
-        """Find blank spaces in the document"""
+        # Find blank spaces in the document
         try:
             # Apply adaptive threshold for better edge detection
             thresh = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
@@ -497,7 +514,7 @@ class DocumentProcessor:
             return []
     
     def create_virtual_fields_from_text(self, text, gray_image, page_num=0):
-        """Create virtual form fields based on text analysis"""
+        # Create virtual form fields based on text analysis
         virtual_fields = []
         lines = text.split('\n')
         
@@ -580,7 +597,7 @@ class DocumentProcessor:
         return virtual_fields
     
     def process_word_document(self, file_path):
-        """Process Word documents (.doc, .docx)"""
+        # Process Word documents (.doc, .docx)
         try:
             from docx import Document
             
@@ -623,7 +640,7 @@ class DocumentProcessor:
                 raise Exception(f"Error processing Word document: {str(e2)}")
     
     def process_text_document(self, file_path):
-        """Process text documents (.txt, .rtf)"""
+        # Process text documents (.txt, .rtf)
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
@@ -640,7 +657,7 @@ class DocumentProcessor:
             raise Exception(f"Error processing text document: {str(e)}")
 
 def index(request):
-    """Main page view"""
+    # Main page view
     document = None
     ollama_status = {'running': False, 'models': []}
     
@@ -670,7 +687,7 @@ def index(request):
     return render(request, 'index.html', context)
 
 def analyze_context(image, x, y, w, h, full_text=""):
-    """Analyze context around blank space to suggest content"""
+    # Analyze context around blank space to suggest content
     # If we have the full extracted text, use it for better analysis
     if full_text:
         lines = full_text.split('\n')
@@ -731,8 +748,227 @@ def analyze_context(image, x, y, w, h, full_text=""):
     return 'general'
 
 @api_view(['POST'])
+@csrf_exempt
+def upload_fillable_pdf(request):
+    # 
+    # Upload a fillable PDF that was already processed by Sejda Desktop.
+    # This endpoint extracts AcroForm fields and prepares them for AI filling.
+    
+    
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method allowed'}, status=405)
+    
+    if 'file' not in request.FILES:
+        return JsonResponse({'error': 'No file uploaded'}, status=400)
+    
+    uploaded_file = request.FILES['file']
+    file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+    
+    if file_ext not in ['.pdf']:
+        return JsonResponse({'error': 'Only PDF files are supported'}, status=400)
+    
+    try:
+        # Generate unique document ID
+        doc_id = str(uuid.uuid4())
+        
+        # Save uploaded fillable PDF
+        file_path = f"uploads/{doc_id}_{uploaded_file.name}"
+        with default_storage.open(file_path, 'wb') as destination:
+            for chunk in uploaded_file.chunks():
+                destination.write(chunk)
+        
+        full_file_path = os.path.join(settings.MEDIA_ROOT, file_path)
+        
+        print(f"Processing fillable PDF from Sejda Desktop: {uploaded_file.name}")
+        
+        # Open PDF and extract AcroForm fields
+        doc = fitz.open(full_file_path)
+        fields = []
+        field_count = 0
+        
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            widgets = page.widgets()
+            
+            print(f"Page {page_num}: Found {len(widgets) if widgets else 0} form fields")
+            
+            if widgets:
+                for widget in widgets:
+                    field_name = widget.field_name or f"field_{field_count}"
+                    field_rect = widget.rect
+                    
+                    # Create field data
+                    field_data = {
+                        'id': f"acroform_{field_name}_{page_num}_{field_count}",
+                        'field_type': 'text',  # Default type
+                        'x_position': int(field_rect.x0),
+                        'y_position': int(field_rect.y0),
+                        'width': int(field_rect.width),
+                        'height': int(field_rect.height),
+                        'context': f"Form field: {field_name}",
+                        'page': page_num,
+                        'page_number': page_num,
+                        'user_content': widget.field_value or '',
+                        'ai_content': '',
+                        'ai_suggestion': '',
+                        'ai_enhanced': False,
+                        'sejda_field_name': field_name,
+                        'detection_method': 'sejda_acroform'
+                    }
+                    fields.append(field_data)
+                    field_count += 1
+                    
+                    print(f"  Field: {field_name} at ({field_rect.x0:.1f}, {field_rect.y0:.1f})")
+        
+        doc.close()
+        
+        print(f"Extracted {len(fields)} AcroForm fields from Sejda Desktop PDF")
+        
+        # Create document record
+        document = {
+            'id': doc_id,
+            'filename': uploaded_file.name,
+            'file_path': file_path,
+            'fillable_pdf_path': file_path,  # This PDF is already fillable
+            'fields': fields,
+            'upload_time': datetime.now().isoformat(),
+            'total_fields': len(fields),
+            'sejda_processed': True,
+            'is_fillable': True
+        }
+        
+        # Save document to storage
+        documents_storage.save_document(doc_id, document)
+        training_storage.save_document(doc_id, document)
+        
+        # Store document ID in session
+        if hasattr(request, 'session'):
+            request.session['current_document_id'] = str(doc_id)
+        
+        print(f"Document ready for AI filling with {len(fields)} fields")
+        
+        return JsonResponse({
+            'document_id': doc_id,
+            'filename': uploaded_file.name,
+            'total_fields': len(fields),
+            'fields': fields,
+            'fillable_pdf_url': f"/media/{file_path}",
+            'sejda_processed': True,
+            'is_fillable': True,
+            'success': True
+        })
+        
+    except Exception as e:
+        import traceback
+        print(f"Error processing fillable PDF: {e}")
+        print(traceback.format_exc())
+        return JsonResponse({'error': f'Upload failed: {str(e)}'}, status=500)
+
+@api_view(['POST'])
+@csrf_exempt
+def upload_document_with_sejda(request):
+    # 
+    # Upload document and create fillable PDF using Sejda integration
+    # This provides better field detection than our custom implementation
+    
+    
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method allowed'}, status=405)
+    
+    if 'file' not in request.FILES:
+        return JsonResponse({'error': 'No file uploaded'}, status=400)
+    
+    uploaded_file = request.FILES['file']
+    file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+    
+    if file_ext not in ['.pdf']:
+        return JsonResponse({'error': 'Only PDF files are supported'}, status=400)
+    
+    try:
+        # Generate unique document ID
+        doc_id = str(uuid.uuid4())
+        
+        # Save uploaded file
+        file_path = f"uploads/{doc_id}_{uploaded_file.name}"
+        with default_storage.open(file_path, 'wb') as destination:
+            for chunk in uploaded_file.chunks():
+                destination.write(chunk)
+        
+        full_file_path = os.path.join(settings.MEDIA_ROOT, file_path)
+        
+        # Create Sejda integration instance
+        sejda = SejdaIntegration()
+        
+        # Create fillable PDF using Sejda
+        fillable_pdf_path = os.path.join(settings.MEDIA_ROOT, f"processed/fillable_{doc_id}_{uploaded_file.name}")
+        os.makedirs(os.path.dirname(fillable_pdf_path), exist_ok=True)
+        
+        print(f"Creating fillable PDF with Sejda integration...")
+        success = sejda.create_fillable_pdf(full_file_path, fillable_pdf_path)
+        
+        if not success:
+            return JsonResponse({'error': 'Failed to create fillable PDF'}, status=500)
+        
+        # Get form fields from the fillable PDF
+        form_fields = sejda.get_form_fields(fillable_pdf_path)
+        
+        # Convert form fields to our format
+        fields = []
+        for i, field in enumerate(form_fields):
+            field_data = {
+                'id': f"sejda_field_{i}",
+                'field_type': 'text',  # Default type
+                'x_position': field['rect'].x0,
+                'y_position': field['rect'].y0,
+                'width': field['rect'].width,
+                'height': field['rect'].height,
+                'context': f"Sejda detected field: {field['name']}",
+                'page': field['page'],
+                'user_content': '',
+                'ai_suggestion': '',
+                'ai_enhanced': False,
+                'sejda_field_name': field['name']  # Store original Sejda field name
+            }
+            fields.append(field_data)
+        
+        # Create document record
+        document = {
+            'id': doc_id,
+            'filename': uploaded_file.name,
+            'file_path': file_path,
+            'fillable_pdf_path': f"processed/fillable_{doc_id}_{uploaded_file.name}",
+            'fields': fields,
+            'upload_time': datetime.now().isoformat(),
+            'total_fields': len(fields),
+            'sejda_processed': True
+        }
+        
+        # Save document to storage
+        documents_storage.save_document(doc_id, document)
+        training_storage.save_document(doc_id, document)
+        
+        # Store document ID in session
+        if hasattr(request, 'session'):
+            request.session['current_document_id'] = str(doc_id)
+        
+        print(f"Sejda integration created {len(fields)} form fields")
+        
+        return JsonResponse({
+            'document_id': doc_id,
+            'filename': uploaded_file.name,
+            'total_fields': len(fields),
+            'fields': fields,
+            'fillable_pdf_url': f"/media/processed/fillable_{doc_id}_{uploaded_file.name}",
+            'sejda_processed': True
+        })
+        
+    except Exception as e:
+        print(f"Error in Sejda upload: {e}")
+        return JsonResponse({'error': f'Upload failed: {str(e)}'}, status=500)
+
+@api_view(['POST'])
 def upload_document(request):
-    """Handle document upload and processing"""
+    # Handle document upload and processing
     try:
         print("=== UPLOAD STARTING ===")
         print("Starting upload_document function")
@@ -785,10 +1021,29 @@ def upload_document(request):
             for chunk in file.chunks():
                 destination.write(chunk)
         
+        # NEW: Use Sejda Desktop for conversion, then extract fields from the fillable PDF!
+        use_sejda_conversion = False
+        sejda_fillable_pdf = None
+        
+        if file_ext == '.pdf':
+            try:
+                print("Attempting Sejda Desktop conversion...")
+                from sejda_simple_automation import SejdaSimpleAutomation
+                
+                sejda_auto = SejdaSimpleAutomation()
+                if sejda_auto.sejda_path and PYWINAUTO_AVAILABLE:
+                    use_sejda_conversion = True
+                    print("Sejda Desktop available - will use for field detection")
+                else:
+                    print("Sejda Desktop not available - using fallback detection")
+            except Exception as e:
+                print(f"Sejda check failed: {e}")
+                use_sejda_conversion = False
+        
         # Process document based on file type
         processor = DocumentProcessor()
         
-        # Process document using enhanced processor
+        # Process document using enhanced processor (fallback if Sejda not available)
         result = processor.process_document(filepath)
         
         # Create document record in memory
@@ -807,11 +1062,15 @@ def upload_document(request):
         if hasattr(request, 'session'):
             request.session['current_document_id'] = str(doc_id)
         
+        # For CLEAN Sejda workflow, we don't extract fields during upload
+        # Fields will be detected and filled directly in Sejda when user clicks "AI Fill"
+        
         # Create field records in memory with intelligent filtering
-        # Prioritize AcroForm fields over visual detection fields
+        # Prioritize: Sejda > AcroForm > Dotted Lines > Visual Blank > Other Visual Detection
         acroform_fields = []
         visual_fields = []
         dots_fields = []
+        visual_blank_fields = []
         
         for i, space in enumerate(result['blank_spaces']):
             field = {
@@ -835,33 +1094,37 @@ def upload_document(request):
                 acroform_fields.append(field)
             elif field_id.startswith('dots_field_'):
                 dots_fields.append(field)
+            elif field_id.startswith('visual_blank_'):
+                visual_blank_fields.append(field)
             else:
                 visual_fields.append(field)
         
-        # Add fields in priority order: AcroForm > Dotted Lines > Visual Detection
-        # If AcroForm fields exist, skip visual detection fields to avoid duplicates
-        # If dotted line fields exist, also skip visual detection fields to avoid duplicates
+        # Add fields in priority order: AcroForm > Dotted Lines > Visual Blank > Other Visual Detection
+        # (Sejda CLEAN workflow doesn't need fields during upload - handles them at fill time)
         if acroform_fields:
             document['fields'].extend(acroform_fields)
             document['fields'].extend(dots_fields)  # Always include dotted line fields
-            print(f"✓ Added {len(acroform_fields)} AcroForm fields + {len(dots_fields)} dotted line fields")
+            document['fields'].extend(visual_blank_fields)  # Include visual blank fields
+            print(f"Added {len(acroform_fields)} AcroForm fields + {len(dots_fields)} dotted line fields + {len(visual_blank_fields)} visual blank fields")
             if visual_fields:
-                print(f"✗ Skipped {len(visual_fields)} visual detection fields (AcroForm fields take priority)")
-        elif dots_fields:
-            # No AcroForm fields, but dotted line fields exist - skip visual detection
+                print(f"Skipped {len(visual_fields)} other visual detection fields (higher priority fields exist)")
+        elif dots_fields or visual_blank_fields:
+            # No AcroForm fields, but dotted line or visual blank fields exist
             document['fields'].extend(dots_fields)
-            print(f"✓ Added {len(dots_fields)} dotted line fields")
+            document['fields'].extend(visual_blank_fields)
+            print(f"Added {len(dots_fields)} dotted line fields + {len(visual_blank_fields)} visual blank fields")
             if visual_fields:
-                print(f"✗ Skipped {len(visual_fields)} visual detection fields (dotted line fields take priority)")
+                print(f"Skipped {len(visual_fields)} other visual detection fields (higher priority fields exist)")
         else:
-            # No AcroForm or dotted line fields, use all detected fields
+            # No high-priority fields, use all detected fields
             document['fields'].extend(visual_fields)
-            print(f"✓ Added {len(visual_fields)} visual detection fields (no AcroForm or dotted line fields found)")
+            print(f"Added {len(visual_fields)} visual detection fields (no high-priority fields found)")
         
         # Automatically create an interactive fillable PDF for PDF uploads
         print(f"Upload processing - File extension: {file_ext}")
         try:
             if file_ext == '.pdf':
+                # Create fillable PDF using our method
                 print(f"PDF detected - processing fillable PDF creation...")
                 processed_dir = os.path.join(settings.MEDIA_ROOT, 'processed')
                 os.makedirs(processed_dir, exist_ok=True)
@@ -874,6 +1137,10 @@ def upload_document(request):
                     document['fillable_pdf'] = f"/media/processed/{fillable_filename}"
                     document['fillable_pdf_path'] = fillable_output_path
                     print(f"Fillable PDF created: {fillable_output_path}")
+                    
+                    # SKIP PyMuPDF filling - Sejda will handle it!
+                    # (PyMuPDF fillable PDF is just a backup if Sejda fails)
+                    pass  # Skip filling - Sejda does everything!
                 else:
                     print(f"Fillable PDF creation failed for: {filepath}")
         except Exception as _auto_fillable_err:
@@ -885,18 +1152,119 @@ def upload_document(request):
         # Store in memory
         save_document(document)
         
-        # DISABLED: Automatic training (user should delete unwanted fields first)
-        # User will click "Train System" button after cleaning up fields
-        # training_results = None
-        # if universal_processor:
-        #     try:
-        #         training_results = auto_train_from_document(file.name, document, result)
-        #         print(f"Automatic training completed: {training_results}")
-        #     except Exception as training_error:
-        #         print(f"Automatic training failed: {training_error}")
-        #         import traceback
-        #         traceback.print_exc()
+        # SEJDA CONVERSION WORKFLOW
+        print(f"\nDEBUG: use_sejda_conversion = {use_sejda_conversion}")
+        print(f"DEBUG: sejda_auto = {sejda_auto}")
+        print(f"DEBUG: PYWINAUTO_AVAILABLE = {PYWINAUTO_AVAILABLE}")
         
+        if use_sejda_conversion and sejda_auto:
+            print("\n" + "="*60)
+            print("STARTING SEJDA DESKTOP CONVERSION!")
+            print("="*60)
+            
+            # Output path for fillable PDF
+            fillable_output = filepath.replace('uploads/', 'processed/sejda_fillable_')
+            fillable_output_full = os.path.join(settings.MEDIA_ROOT, fillable_output)
+            
+            print(f"Input: {filepath}")
+            print(f"Output: {fillable_output_full}")
+            
+            # FIRST: Generate AI data for all detected fields
+            print(f"\nGenerating AI data for {len(document['fields'])} fields...")
+            from chat.views import IntelligentFieldFiller
+            intelligent_filler = IntelligentFieldFiller()
+            
+            doc_context = {
+                'document_type': 'form',
+                'total_blanks': document['total_blanks'],
+                'field_types': [field.get('field_type', 'text') for field in document['fields']],
+                'extracted_text': document['extracted_text']
+            }
+            
+            # Generate AI data BEFORE opening Sejda
+            ai_data_for_sejda = {}
+            for field in document['fields']:
+                try:
+                    suggested_content = intelligent_filler.generate_field_content(field, doc_context)
+                    ai_data_for_sejda[field['id']] = suggested_content
+                    print(f"   {field['id']}: '{suggested_content[:30]}...'")
+                except Exception as ai_err:
+                    print(f"   Failed for {field['id']}: {ai_err}")
+            
+            print(f"Generated AI data for {len(ai_data_for_sejda)} fields")
+            print(f"AI Data Details:")
+            for field_id, value in ai_data_for_sejda.items():
+                print(f"   - {field_id}: '{value}'")
+            
+            # NOW: Convert to fillable using Sejda AND fill with AI data
+            print(f"\nOpening Sejda with AI data...")
+            result_sejda = sejda_auto.convert_to_fillable(filepath, fillable_output_full, ai_data=ai_data_for_sejda, timeout=60)
+            
+            if result_sejda['success']:
+                print("\nSejda conversion successful!")
+                print(f"   Sejda output: {fillable_output_full}")
+                
+                # Update document with the filled PDF path
+                document['sejda_fillable_pdf'] = fillable_output
+                document['sejda_auto_filled'] = True
+                
+                # Also store AI-filled data in fields
+                for field in document['fields']:
+                    field_id = field['id']
+                    if field_id in ai_data_for_sejda:
+                        field['ai_content'] = ai_data_for_sejda[field_id]
+                        field['user_content'] = ai_data_for_sejda[field_id]
+                
+                save_document(document)
+                
+                print("\n" + "="*60)
+                print("AUTOMATIC WORKFLOW COMPLETE!")
+                print(f"   Filled PDF ready!")
+                print("="*60 + "\n")
+                
+                # Sejda saves to the input location, not the output location
+                sejda_output_path = filepath  # Sejda overwrites the input file
+                
+                response_data = {
+                    'success': True,
+                    'document_id': str(doc_id),
+                    'document': document,
+                    'sejda_converted': True,
+                    'sejda_fillable_url': f"/media/{sejda_output_path}",  # Use actual Sejda output
+                    'auto_download': True,  # FULLY AUTOMATIC - AI fills, saves, opens in new tab
+                    'result': {
+                        'extracted_text': result['extracted_text'],
+                        'total_blanks': len(ai_data_for_sejda)
+                    },
+                    'message': 'PDF filled automatically! Downloading now...'
+                }
+                return Response(response_data)
+                
+                # Skip the field extraction below since we already have everything
+                
+            else:
+                print(f"Sejda conversion failed: {result_sejda.get('error')}")
+                print("   -> Continuing with normal upload")
+        
+        # Store in memory
+        save_document(document)
+        
+        response_data = {
+            'success': True,
+            'document_id': str(doc_id),
+            'document': document,
+            'result': result
+        }
+        return Response(response_data)
+    
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Upload error: {e}")
+        print(error_trace)
+        return Response({'error': str(e), 'traceback': error_trace}, status=500)
+
+
         response_data = {
             'success': True,
             'document_id': str(doc_id),
@@ -906,8 +1274,6 @@ def upload_document(request):
                 'total_blanks': result['total_blanks']
             }
         }
-        
-        # No automatic training - user will click "Train System" after cleanup
         
         return Response(response_data)
     
@@ -919,7 +1285,7 @@ def upload_document(request):
 
 @api_view(['GET'])
 def get_document(request, doc_id):
-    """Get document information"""
+    # Get document information
     try:
         document = get_stored_document(doc_id)
         if not document:
@@ -930,7 +1296,7 @@ def get_document(request, doc_id):
 
 @api_view(['POST'])
 def update_field(request, doc_id):
-    """Update a specific field in the document"""
+    # Update a specific field in the document
     try:
         field_id = request.data.get('field_id')
         content = request.data.get('content', '')
@@ -957,7 +1323,7 @@ def update_field(request, doc_id):
 
 @api_view(['POST'])
 def delete_field(request, doc_id):
-    """Delete a specific field from the document"""
+    # Delete a specific field from the document
     try:
         field_id = request.data.get('field_id')
         
@@ -1001,7 +1367,7 @@ def delete_field(request, doc_id):
 
 @api_view(['POST'])
 def generate_pdf(request, doc_id):
-    """Generate final PDF with filled content"""
+    # Generate final PDF with filled content
     try:
         document = documents_storage.get(str(doc_id))
         if not document:
@@ -1053,7 +1419,7 @@ def generate_pdf(request, doc_id):
 
 @api_view(['GET'])
 def download_pdf(request, doc_id):
-    """Download the generated PDF"""
+    # Download the generated PDF
     try:
         pdf_filename = f"filled_{doc_id}.pdf"
         pdf_path = os.path.join(settings.MEDIA_ROOT, 'processed', pdf_filename)
@@ -1068,7 +1434,7 @@ def download_pdf(request, doc_id):
 
 @api_view(['POST'])
 def clear_session(request):
-    """Clear the current document from session"""
+    # Clear the current document from session
     try:
         # Clear the current document ID from session
         if 'current_document_id' in request.session:
@@ -1085,7 +1451,7 @@ def clear_session(request):
 
 @api_view(['POST'])
 def manual_train(request, doc_id):
-    """Manually trigger training from a document"""
+    # Manually trigger training from a document
     try:
         print(f"Manual training request for document: {doc_id}")
         
@@ -1215,7 +1581,7 @@ def manual_train(request, doc_id):
 
 @api_view(['GET'])
 def get_training_stats(request):
-    """Get training statistics"""
+    # Get training statistics
     try:
         if not universal_processor:
             return Response({'error': 'Universal Document Processor not available'}, 
@@ -1239,7 +1605,7 @@ def get_training_stats(request):
 
 @api_view(['GET'])
 def preview_document(request, doc_id):
-    """Preview the original document"""
+    # Preview the original document
     try:
         document = get_stored_document(doc_id)
         if not document:
@@ -1284,7 +1650,7 @@ def preview_document(request, doc_id):
 
 @api_view(['POST'])
 def regenerate_document(request, doc_id):
-    """Regenerate the original document with filled fields overlaid"""
+    # Regenerate the original document with filled fields overlaid
     try:
         print(f"Regenerating document: {doc_id}")
         
@@ -1373,7 +1739,7 @@ def regenerate_document(request, doc_id):
         return Response({'error': str(e), 'traceback': traceback.format_exc()}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 def create_filled_pdf(input_path, output_path, fields):
-    """Create a filled PDF with text overlaid on the original - handles multi-page PDFs"""
+    # Create a filled PDF with text overlaid on the original - handles multi-page PDFs
     try:
         import fitz  # PyMuPDF
         
@@ -1488,7 +1854,7 @@ def create_filled_pdf(input_path, output_path, fields):
                         continue
                     
                     # Check if this is an AcroForm field (already in PDF coordinates)
-                    # or a visually detected field (needs scaling from 3x image)
+                    # or a visually detected field (needs scaling from 3-times image)
                     field_id = str(field.get('id', ''))
                     is_acroform = field_id.startswith('acroform_')
                     
@@ -1502,7 +1868,7 @@ def create_filled_pdf(input_path, output_path, fields):
                     field_width = float(field.get('width', 100))
                     field_height = float(field.get('height', 25))
                     
-                    # Visual detection fields need to be scaled back from 3x detection scale
+                    # Visual detection fields need to be scaled back from 3-times detection scale
                     x = float(x_pos) / SCALE_FACTOR
                     y = float(y_pos) / SCALE_FACTOR
                     width = float(field_width) / SCALE_FACTOR
@@ -1585,22 +1951,20 @@ def create_filled_pdf(input_path, output_path, fields):
         return False
 
 def create_fillable_pdf(input_path, output_path, fields):
-    """Create an interactive (AcroForm) fillable PDF based on detected fields.
-    - Adds text and checkbox widgets for non-Acro fields using page coordinates.
-    - Keeps existing AcroForm fields untouched.
-    """
+    # Create an interactive (AcroForm) fillable PDF based on detected fields.
+    # - Adds text and checkbox widgets for non-Acro fields using page coordinates.
+    # - Keeps existing AcroForm fields untouched.
     try:
         import fitz  # PyMuPDF
         doc = fitz.open(input_path)
 
-        SCALE_FACTOR = 3.0  # detection was done at 3x scale
+        SCALE_FACTOR = 3.0  # detection was done at 3-times scale
 
         def _detect_dotted_leaders_pdf_for_widgets(pdf_doc, scale: float = 3.0):
-            """Fallback detector: find dotted leaders and yield widget-like field dicts.
-            Coordinates are returned in the same 3x pixel space expected by caller.
-            """
+            # Fallback detector: find dotted leaders and yield widget-like field dicts.
+            # Coordinates are returned in the same scaled pixel space expected by caller.
             detected = []
-            pattern = re.compile(r'(\.{3,}|…{2,})')
+            pattern = re.compile(r'(\.{3,}|\.{2,})')
             for pnum in range(len(pdf_doc)):
                 try:
                     page = pdf_doc[pnum]
@@ -1614,7 +1978,7 @@ def create_fillable_pdf(input_path, output_path, fields):
                             if not spans:
                                 continue
                             built = ''.join(s.get('text', '') or '' for s in spans)
-                            if not built or ('.' not in built and '…' not in built):
+                            if not built or ('.' not in built and '.' not in built):
                                 continue
                             # Build per-char positions
                             char_positions = []
@@ -1681,10 +2045,9 @@ def create_fillable_pdf(input_path, output_path, fields):
             return detected
 
         def _detect_anchor_fields(pdf_doc, scale: float = 3.0):
-            """Heuristic anchors for common contract lines where dots might be vector graphics.
-            - Creates fields near words: 'day', 'month', 'year', 'Employer', 'Employee'
-            Coordinates returned in 3x image space (scale applied).
-            """
+            # Heuristic anchors for common contract lines where dots might be vector graphics.
+            # - Creates fields near words: 'day', 'month', 'year', 'Employer', 'Employee'
+            # Coordinates returned in 3-times image space (scale applied).
             results = []
             keywords = ['day', 'month', 'year', 'employer', 'employee']
             for pnum in range(len(pdf_doc)):
@@ -1769,13 +2132,14 @@ def create_fillable_pdf(input_path, output_path, fields):
         except Exception:
             existing = []
 
-        # Use existing dots_field_* fields from enhanced detection
+        # Use existing dots_field_* and visual_blank_* fields from enhanced detection
         dotted_fields = [f for f in existing if f.get('id', '').startswith('dots_field_')]
-        print(f"Found {len(dotted_fields)} existing dotted fields to convert to AcroForm widgets")
+        visual_blank_fields = [f for f in existing if f.get('id', '').startswith('visual_blank_')]
+        print(f"Found {len(dotted_fields)} existing dotted fields and {len(visual_blank_fields)} visual blank fields to convert to AcroForm widgets")
         
-        # Convert dots_field_* fields to widget format
+        # Convert dots_field_* and visual_blank_* fields to widget format
         dotted_extra = []
-        for field in dotted_fields:
+        for field in dotted_fields + visual_blank_fields:
             try:
                 widget_field = {
                     'id': field['id'],
@@ -1960,7 +2324,7 @@ def create_fillable_pdf(input_path, output_path, fields):
         return False
 
 def create_filled_word(input_path, output_path, fields):
-    """Create a filled Word document with filled content"""
+    # Create a filled Word document with filled content
     try:
         from docx import Document
         
@@ -1978,14 +2342,14 @@ def create_filled_word(input_path, output_path, fields):
                 # Format content based on field type
                 if field_type == 'checkbox':
                     if content.lower() == 'checked':
-                        field_content_map[context] = "☑"  # Checked checkbox
+                        field_content_map[context] = "[X]"  # Checked checkbox
                     else:
-                        field_content_map[context] = "☐"  # Unchecked checkbox
+                        field_content_map[context] = "[ ]"  # Unchecked checkbox
                 elif field_type == 'radio':
                     if content.lower() == 'selected':
-                        field_content_map[context] = "●"  # Selected radio button
+                        field_content_map[context] = "(*)"  # Selected radio button
                     else:
-                        field_content_map[context] = "○"  # Unselected radio button
+                        field_content_map[context] = "O"  # Unselected radio button
                 elif field_type == 'dropdown':
                     field_content_map[context] = f"[{content}]"  # Show selected option
                 else:
@@ -2037,7 +2401,7 @@ def create_filled_word(input_path, output_path, fields):
         return False
 
 def create_filled_image(input_path, output_path, fields):
-    """Create a filled image with text overlaid on the original"""
+    # Create a filled image with text overlaid on the original
     try:
         import cv2
         import numpy as np
@@ -2100,7 +2464,7 @@ def create_filled_image(input_path, output_path, fields):
         return False
 
 def create_filled_text(input_path, output_path, fields):
-    """Create a filled text file with filled content"""
+    # Create a filled text file with filled content
     try:
         with open(input_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
@@ -2148,7 +2512,7 @@ def create_filled_text(input_path, output_path, fields):
 
 @api_view(['POST'])
 def make_fillable_pdf(request, doc_id):
-    """Convert the uploaded PDF into an Interactive fillable PDF by adding widgets for detected fields."""
+    # Convert the uploaded PDF into an Interactive fillable PDF by adding widgets for detected fields.
     try:
         document = get_stored_document(doc_id)
         if not document:
@@ -2174,3 +2538,4 @@ def make_fillable_pdf(request, doc_id):
             return Response({'error': 'Failed to create fillable PDF'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

@@ -231,6 +231,10 @@ class EnhancedFieldDetector:
                     dotted_fields = self._detect_dotted_leader_fields(page_text, gray.shape, page_num)
                     print(f"    Text-based dotted detection found {len(dotted_fields)} fields")
                 all_fields.extend(dotted_fields)
+                
+                # Method 7: Visual blank detection (Sejda-style approach)
+                visual_blank_fields = self._detect_visual_blank_fields(page, page_num)
+                all_fields.extend(visual_blank_fields)
             
             # Comprehensive deduplication and merging
             all_fields = self._merge_and_deduplicate_enhanced(all_fields)
@@ -1008,6 +1012,168 @@ class EnhancedFieldDetector:
             print(f"Error in dotted leader detection: {e}")
             return fields
 
+    def _detect_visual_blank_fields(self, page, page_num):
+        """Detect blank spaces in PDF similar to Sejda PDF - find areas with no text content"""
+        fields = []
+        try:
+            print(f"    Starting visual blank field detection for page {page_num}")
+            
+            # Get page dimensions
+            page_rect = page.rect
+            page_width = page_rect.width
+            page_height = page_rect.height
+            
+            # Get all text blocks with their bounding boxes
+            text_dict = page.get_text("rawdict")
+            text_areas = []
+            
+            for block in text_dict.get("blocks", []):
+                if "lines" in block:
+                    for line in block["lines"]:
+                        for span in line["spans"]:
+                            bbox = span["bbox"]
+                            text_areas.append({
+                                'x0': bbox[0], 'y0': bbox[1], 
+                                'x1': bbox[2], 'y1': bbox[3],
+                                'text': span.get("text", "").strip()
+                            })
+            
+            print(f"    Found {len(text_areas)} text areas on page")
+            
+            # Look for blank spaces between text areas
+            # Sort text areas by y-coordinate (top to bottom)
+            text_areas.sort(key=lambda x: x['y0'])
+            
+            field_id = 0
+            min_field_width = 30  # Minimum width for a field
+            min_field_height = 15  # Minimum height for a field
+            
+            # Check for horizontal gaps (blank spaces between text on same line)
+            for i, area in enumerate(text_areas):
+                if not area['text']:
+                    continue
+                    
+                # Look for gaps to the right of this text area
+                right_x = area['x1']
+                right_y = area['y0']
+                right_height = area['y1'] - area['y0']
+                
+                # Find the next text area on the same line (similar y-coordinate)
+                next_area = None
+                for j, other_area in enumerate(text_areas[i+1:], i+1):
+                    if (abs(other_area['y0'] - right_y) < right_height * 0.5 and 
+                        other_area['x0'] > right_x and
+                        other_area['text']):
+                        next_area = other_area
+                        break
+                
+                if next_area:
+                    gap_width = next_area['x0'] - right_x
+                    if gap_width >= min_field_width:
+                        # Found a potential blank field
+                        field_x0 = right_x
+                        field_y0 = right_y
+                        field_x1 = next_area['x0']
+                        field_y1 = right_y + right_height
+                        
+                        # Determine field type from surrounding text
+                        context = f"{area['text']} {next_area['text']}"
+                        field_type = self._determine_field_type(context)
+                        
+                        field = FormField(
+                            id=f"visual_blank_p{page_num}_{field_id}",
+                            field_type=field_type,
+                            x_position=int(field_x0),
+                            y_position=int(field_y0),
+                            width=int(field_x1 - field_x0),
+                            height=int(field_y1 - field_y0),
+                            page_number=page_num,
+                            context=context[:160],
+                            confidence=0.8,
+                            detection_method="visual_blank_detection"
+                        )
+                        # Store exact coordinates
+                        field.x1 = field_x0
+                        field.y1 = field_y0
+                        field.x2 = field_x1
+                        field.y2 = field_y1
+                        field.page = page_num
+                        fields.append(field)
+                        field_id += 1
+                        
+                        print(f"    Found horizontal blank field: {field.id} at ({field_x0:.1f}, {field_y0:.1f}) size ({field_x1-field_x0:.1f}x{field_y1-field_y0:.1f})")
+                        print(f"      Context: '{context[:50]}...'")
+            
+            # Check for vertical gaps (blank lines between text blocks)
+            for i in range(len(text_areas) - 1):
+                current_area = text_areas[i]
+                next_area = text_areas[i + 1]
+                
+                if not current_area['text'] or not next_area['text']:
+                    continue
+                
+                # Check if there's a significant vertical gap
+                gap_height = next_area['y0'] - current_area['y1']
+                if gap_height >= min_field_height:
+                    # Check if there's horizontal overlap (same column)
+                    if (current_area['x0'] < next_area['x1'] and 
+                        current_area['x1'] > next_area['x0']):
+                        
+                        # Found a potential blank field in the gap
+                        field_x0 = max(current_area['x0'], next_area['x0'])
+                        field_y0 = current_area['y1']
+                        field_x1 = min(current_area['x1'], next_area['x1'])
+                        field_y1 = next_area['y0']
+                        
+                        if field_x1 - field_x0 >= min_field_width:
+                            context = f"{current_area['text']} {next_area['text']}"
+                            field_type = self._determine_field_type(context)
+                            
+                            field = FormField(
+                                id=f"visual_blank_p{page_num}_{field_id}",
+                                field_type=field_type,
+                                x_position=int(field_x0),
+                                y_position=int(field_y0),
+                                width=int(field_x1 - field_x0),
+                                height=int(field_y1 - field_y0),
+                                page_number=page_num,
+                                context=context[:160],
+                                confidence=0.7,
+                                detection_method="visual_blank_detection"
+                            )
+                            # Store exact coordinates
+                            field.x1 = field_x0
+                            field.y1 = field_y0
+                            field.x2 = field_x1
+                            field.y2 = field_y1
+                            field.page = page_num
+                            fields.append(field)
+                            field_id += 1
+                            
+                            print(f"    Found vertical blank field: {field.id} at ({field_x0:.1f}, {field_y0:.1f}) size ({field_x1-field_x0:.1f}x{field_y1-field_y0:.1f})")
+                            print(f"      Context: '{context[:50]}...'")
+            
+            print(f"    Visual blank detection found {len(fields)} fields")
+            return fields
+            
+        except Exception as e:
+            print(f"Error in visual blank field detection: {e}")
+            return fields
+    
+    def _determine_field_type(self, context):
+        """Determine field type based on context text"""
+        context_lower = context.lower()
+        if any(k in context_lower for k in ['date', 'day', 'month', 'year']):
+            return 'date'
+        elif any(k in context_lower for k in ['salary', 'amount', 'nu.', '$', 'rs.', 'basic']):
+            return 'number'
+        elif any(k in context_lower for k in ['employer', 'employee', 'company', 'name']):
+            return 'name'
+        elif any(k in context_lower for k in ['id', 'number', 'no.']):
+            return 'text'
+        else:
+            return 'text'
+
     def _detect_dotted_leader_fields_pdf(self, page, page_num: int, scale: float = 3.0) -> List[FormField]:
         """Detect dotted leader placeholders using PDF raw text positions for accurate boxes.
 
@@ -1072,123 +1238,130 @@ class EnhancedFieldDetector:
                     if not built:
                         continue
 
-                    # Search dotted runs within built - more lenient approach
+                    # Search dotted runs within built - ONLY match lines with MOSTLY dots/underscores/dashes
                     if built.strip():
-                        # Check for any dotted patterns (more lenient matching)
-                        has_dots = any(char in built for char in ['.', '…', '_', '-'])
-                        if has_dots:
-                            print(f"    Found text with potential fillable patterns: '{built.strip()[:50]}...'")
-                            matches = list(pattern.finditer(built))
-                            print(f"    Strict pattern matches found: {len(matches)}")
+                        # Calculate percentage of fillable characters
+                        fillable_chars = sum(1 for char in built if char in ['.', '…', '_', '-', ' '])
+                        total_chars = len(built.strip())
+                        
+                        if total_chars > 0:
+                            fillable_ratio = fillable_chars / total_chars
                             
-                            # If no matches with strict pattern, try more lenient patterns
-                            if len(matches) == 0:
-                                print(f"    No strict matches, trying lenient pattern matching...")
-                                # Try individual character patterns
-                                dot_matches = []
-                                i = 0
-                                while i < len(built):
-                                    char = built[i]
-                                    if char in ['.', '…', '_', '-']:
-                                        # Find consecutive runs of the same character
-                                        start = i
-                                        while i < len(built) and built[i] == char:
-                                            i += 1
-                                        if i - start >= 3:  # At least 3 consecutive characters
-                                            dot_matches.append((start, i, char))
-                                            print(f"      Found {char} run: '{built[start:i]}' at {start}-{i}")
-                                    else:
-                                        i += 1
+                            # ONLY process lines that are at least 60% fillable characters
+                            # This filters out normal text like "employment." or "is hereby"
+                            if fillable_ratio >= 0.6:
+                                print(f"    Found fillable line ({fillable_ratio*100:.0f}% fillable): '{built.strip()[:50]}...'")
+                                matches = list(pattern.finditer(built))
+                                print(f"    Strict pattern matches found: {len(matches)}")
                                 
-                                print(f"    Found {len(dot_matches)} consecutive character runs")
-                                # Convert to match objects
-                                for start, end, char in dot_matches:
-                                    class SimpleMatch:
-                                        def __init__(self, start, end):
-                                            self._start = start
-                                            self._end = end
-                                        def start(self): return self._start
-                                        def end(self): return self._end
-                                    matches.append(SimpleMatch(start, end))
-                            
-                            for i, m in enumerate(matches):
-                                print(f"      Match {i+1}: '{built[m.start():m.end()]}' at {m.start()}-{m.end()}")
-                            print(f"    Character positions available: {len(char_positions)}")
-                            if len(char_positions) > 0:
-                                print(f"    First char position: {char_positions[0]}")
-                                print(f"    Last char position: {char_positions[-1]}")
-                    
-                    # Process all matches (both strict and lenient)
-                    for m in matches:
-                        s_idx, e_idx = m.start(), m.end()
-                        if s_idx >= len(char_positions):
-                            print(f"        Skipping match - start index {s_idx} >= char_positions length {len(char_positions)}")
-                            continue
+                                # If no matches with strict pattern, try more lenient patterns
+                                if len(matches) == 0:
+                                    print(f"    No strict matches, trying lenient pattern matching...")
+                                    # Try individual character patterns
+                                    dot_matches = []
+                                    i = 0
+                                    while i < len(built):
+                                        char = built[i]
+                                        if char in ['.', '…', '_', '-']:
+                                            # Find consecutive runs of the same character
+                                            start = i
+                                            while i < len(built) and built[i] == char:
+                                                i += 1
+                                            if i - start >= 3:  # At least 3 consecutive characters
+                                                dot_matches.append((start, i, char))
+                                                print(f"      Found {char} run: '{built[start:i]}' at {start}-{i}")
+                                        else:
+                                            i += 1
+                                    
+                                    print(f"    Found {len(dot_matches)} consecutive character runs")
+                                    # Convert to match objects
+                                    for start, end, char in dot_matches:
+                                        class SimpleMatch:
+                                            def __init__(self, start, end):
+                                                self._start = start
+                                                self._end = end
+                                            def start(self): return self._start
+                                            def end(self): return self._end
+                                        matches.append(SimpleMatch(start, end))
+                                
+                                for i, m in enumerate(matches):
+                                    print(f"      Match {i+1}: '{built[m.start():m.end()]}' at {m.start()}-{m.end()}")
+                                print(f"    Character positions available: {len(char_positions)}")
+                                if len(char_positions) > 0:
+                                    print(f"    First char position: {char_positions[0]}")
+                                    print(f"    Last char position: {char_positions[-1]}")
                         
-                        start_char = char_positions[s_idx]
-                        end_char = char_positions[min(e_idx-1, len(char_positions)-1)]
-                        
-                        print(f"        Processing match: '{built[s_idx:e_idx]}'")
-                        print(f"        Start char: {start_char}")
-                        print(f"        End char: {end_char}")
-                        
-                        # Field rectangle from character positions (use scale=1.0 for exact PDF coordinates)
-                        x0 = start_char[0]  # No scaling - use exact PDF coordinates
-                        y0 = start_char[1]  # No scaling - use exact PDF coordinates
-                        x1 = end_char[2]    # No scaling - use exact PDF coordinates
-                        y1 = end_char[3]    # No scaling - use exact PDF coordinates
-                        
-                        print(f"        Raw coordinates: x0={x0}, y0={y0}, x1={x1}, y1={y1}")
-                        
-                        # Clamp to page bounds (no scaling needed since we're using exact PDF coordinates)
-                        page_rect = page.rect
-                        x0 = max(0, min(x0, page_rect.width))
-                        y0 = max(0, min(y0, page_rect.height))
-                        x1 = max(x0 + 20, min(x1, page_rect.width))  # Minimum width of 20 points
-                        y1 = max(y0 + 10, min(y1, page_rect.height))  # Minimum height of 10 points
-                        
-                        print(f"        Clamped coordinates: x0={x0}, y0={y0}, x1={x1}, y1={y1}")
-                        
-                        # Context from surrounding text
-                        context_start = max(0, s_idx - 30)
-                        context_end = min(len(built), e_idx + 30)
-                        context = built[context_start:context_end]
-                        
-                        # Type classification
-                        context_lower = context.lower()
-                        if 'day' in context_lower and 'month' not in context_lower:
-                            field_type = 'day'
-                        elif 'month' in context_lower:
-                            field_type = 'month'
-                        elif 'year' in context_lower or '20' in context_lower:
-                            field_type = 'year'
-                        elif any(k in context_lower for k in ['employer', 'employee', 'company']):
-                            field_type = 'name'
-                        else:
-                            field_type = 'text'
-                        
-                        field = FormField(
-                            id=f"dots_field_p{page_num}_{field_id}",
-                            field_type=field_type,
-                            x_position=int(x0),
-                            y_position=int(y0),
-                            width=int(x1 - x0),
-                            height=int(y1 - y0),
-                            page_number=page_num,
-                            context=context[:160],
-                            confidence=0.9,
-                            detection_method="pdf_dotted_lines"
-                        )
-                        # Store exact coordinates for widget creation
-                        field.x1 = x0
-                        field.y1 = y0
-                        field.x2 = x1
-                        field.y2 = y1
-                        field.page = page_num
-                        fields.append(field)
-                        field_id += 1
-                        
-                        print(f"        Created field: {field.id} at ({x0:.1f}, {y0:.1f}) size ({x1-x0:.1f}x{y1-y0:.1f})")
+                                # Process all matches (both strict and lenient)
+                                for m in matches:
+                                    s_idx, e_idx = m.start(), m.end()
+                                    if s_idx >= len(char_positions):
+                                        print(f"        Skipping match - start index {s_idx} >= char_positions length {len(char_positions)}")
+                                        continue
+                                    
+                                    start_char = char_positions[s_idx]
+                                    end_char = char_positions[min(e_idx-1, len(char_positions)-1)]
+                                    
+                                    print(f"        Processing match: '{built[s_idx:e_idx]}'")
+                                    print(f"        Start char: {start_char}")
+                                    print(f"        End char: {end_char}")
+                                    
+                                    # Field rectangle from character positions (use scale=1.0 for exact PDF coordinates)
+                                    x0 = start_char[0]  # No scaling - use exact PDF coordinates
+                                    y0 = start_char[1]  # No scaling - use exact PDF coordinates
+                                    x1 = end_char[2]    # No scaling - use exact PDF coordinates
+                                    y1 = end_char[3]    # No scaling - use exact PDF coordinates
+                                    
+                                    print(f"        Raw coordinates: x0={x0}, y0={y0}, x1={x1}, y1={y1}")
+                                    
+                                    # Clamp to page bounds (no scaling needed since we're using exact PDF coordinates)
+                                    page_rect = page.rect
+                                    x0 = max(0, min(x0, page_rect.width))
+                                    y0 = max(0, min(y0, page_rect.height))
+                                    x1 = max(x0 + 20, min(x1, page_rect.width))  # Minimum width of 20 points
+                                    y1 = max(y0 + 10, min(y1, page_rect.height))  # Minimum height of 10 points
+                                    
+                                    print(f"        Clamped coordinates: x0={x0}, y0={y0}, x1={x1}, y1={y1}")
+                                    
+                                    # Context from surrounding text
+                                    context_start = max(0, s_idx - 30)
+                                    context_end = min(len(built), e_idx + 30)
+                                    context = built[context_start:context_end]
+                                    
+                                    # Type classification
+                                    context_lower = context.lower()
+                                    if 'day' in context_lower and 'month' not in context_lower:
+                                        field_type = 'day'
+                                    elif 'month' in context_lower:
+                                        field_type = 'month'
+                                    elif 'year' in context_lower or '20' in context_lower:
+                                        field_type = 'year'
+                                    elif any(k in context_lower for k in ['employer', 'employee', 'company']):
+                                        field_type = 'name'
+                                    else:
+                                        field_type = 'text'
+                                    
+                                    field = FormField(
+                                        id=f"dots_field_p{page_num}_{field_id}",
+                                        field_type=field_type,
+                                        x_position=int(x0),
+                                        y_position=int(y0),
+                                        width=int(x1 - x0),
+                                        height=int(y1 - y0),
+                                        page_number=page_num,
+                                        context=context[:160],
+                                        confidence=0.9,
+                                        detection_method="pdf_dotted_lines"
+                                    )
+                                    # Store exact coordinates for widget creation
+                                    field.x1 = x0
+                                    field.y1 = y0
+                                    field.x2 = x1
+                                    field.y2 = y1
+                                    field.page = page_num
+                                    fields.append(field)
+                                    field_id += 1
+                                    
+                                    print(f"        Created field: {field.id} at ({x0:.1f}, {y0:.1f}) size ({x1-x0:.1f}x{y1-y0:.1f})")
 
             return fields
         except Exception as e:
