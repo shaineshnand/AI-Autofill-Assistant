@@ -1,6 +1,30 @@
 // Global variables for Sejda workflow
 let sejdaWorkflowData = {};
 let currentStep = 1;
+let useHtmlProcessing = true; // Always use HTML workflow
+
+// Global functions for onclick handlers
+window.handleHtmlUpload = function() {
+    console.log('handleHtmlUpload called');
+    const fileInput = document.getElementById('fileInput');
+    if (fileInput) {
+        useHtmlProcessing = true;
+        fileInput.click();
+    } else {
+        console.error('File input not found');
+    }
+};
+
+window.handleUploadAreaClick = function() {
+    console.log('handleUploadAreaClick called');
+    const fileInput = document.getElementById('fileInput');
+    if (fileInput) {
+        // Don't set useHtmlProcessing here - let user choose workflow
+        fileInput.click();
+    } else {
+        console.error('File input not found');
+    }
+};
 
 // Helper function to get CSRF token
 function getCookie(name) {
@@ -62,11 +86,18 @@ async function completeSejdaWorkflow() {
 */
 
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing...');
+    
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
     const uploadForm = document.getElementById('uploadForm');
-    const normalUploadBtn = document.getElementById('normalUploadBtn');
     const chatInput = document.getElementById('chatInput');
+    
+    console.log('Elements found:', {
+        uploadArea: !!uploadArea,
+        fileInput: !!fileInput,
+        documentLoaded: !!document.querySelector('.document-results')
+    });
     const sendBtn = document.getElementById('sendBtn');
     const chatMessages = document.getElementById('chatMessages');
     const generatePdfBtn = document.getElementById('generatePdfBtn');
@@ -77,17 +108,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const closePreviewBtn = document.getElementById('closePreviewBtn');
     const fillAllBtn = document.getElementById('fillAllBtn');
     const regenerateBtn = document.getElementById('regenerateBtn');
+    const recreateBtn = document.getElementById('recreateBtn');
     const documentId = document.getElementById('documentId')?.value;
 
     // File upload functionality
     if (uploadArea && fileInput) {
-        // Upload button - triggers automatic Sejda workflow!
-        if (normalUploadBtn) {
-            normalUploadBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                fileInput.click();
-            });
-        }
+        // Traditional workflow removed - HTML workflow always enabled
+        
+    // HTML upload button - triggers HTML-based workflow!
+    // HTML workflow is always enabled - no button needed
         
         // Default click behavior (for drag and drop area)
         uploadArea.addEventListener('click', (e) => {
@@ -179,6 +208,125 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Handle AI Fill button for HTML workflow
+    const aiFillBtn = document.getElementById('aiFillBtn');
+    if (aiFillBtn && documentId) {
+        aiFillBtn.addEventListener('click', async () => {
+            try {
+                aiFillBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> AI is filling...';
+                aiFillBtn.disabled = true;
+
+                const response = await fetch(`/ai-fill/${documentId}/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Reload page to show filled form and generate button
+                    window.location.reload();
+                } else {
+                    alert('AI filling failed: ' + (data.error || 'Unknown error'));
+                    aiFillBtn.innerHTML = '<i class="fas fa-magic"></i> AI Fill All Fields';
+                    aiFillBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('AI fill error:', error);
+                alert('AI filling failed: ' + error.message);
+                aiFillBtn.innerHTML = '<i class="fas fa-magic"></i> AI Fill All Fields';
+                aiFillBtn.disabled = false;
+            }
+        });
+    }
+
+    // Handle Generate PDF button for HTML workflow
+    if (generatePdfBtn && documentId) {
+        generatePdfBtn.addEventListener('click', async () => {
+            try {
+                generatePdfBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating PDF...';
+                generatePdfBtn.disabled = true;
+
+                // Capture current field values from editable fields
+                const fieldValues = {};
+                const editableFields = document.querySelectorAll('.editable-field');
+                console.log('Found editable fields in main document:', editableFields.length);
+                
+                editableFields.forEach(field => {
+                    console.log('Field:', field.id, 'Value:', field.value);
+                    if (field.id && field.value) {
+                        fieldValues[field.id] = field.value;
+                    }
+                });
+                
+                // Try to get field values from iframe using postMessage
+                const iframe = document.getElementById('htmlFormIframe');
+                if (iframe) {
+                    console.log('Attempting to get field values from iframe...');
+                    
+                    // Set up listener for response
+                    const messageListener = (event) => {
+                        if (event.data.type === 'FIELD_VALUES') {
+                            console.log('Received field values from iframe:', event.data.values);
+                            Object.assign(fieldValues, event.data.values);
+                            window.removeEventListener('message', messageListener);
+                        }
+                    };
+                    
+                    window.addEventListener('message', messageListener);
+                    
+                    // Send message to iframe
+                    iframe.contentWindow.postMessage({type: 'GET_FIELD_VALUES'}, '*');
+                    
+                    // Wait a bit for response
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                
+                console.log('Final captured field values:', fieldValues);
+
+                const response = await fetch(`/generate-pdf/${documentId}/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({
+                        field_values: fieldValues
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Download the generated PDF
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = data.pdf_url;
+                    downloadLink.download = data.pdf_url.split('/').pop();
+                    downloadLink.click();
+                    
+                    // Show success message
+                    generatePdfBtn.innerHTML = '<i class="fas fa-check"></i> PDF Generated!';
+                    setTimeout(() => {
+                        generatePdfBtn.innerHTML = '<i class="fas fa-download"></i> Generate PDF';
+                        generatePdfBtn.disabled = false;
+                    }, 2000);
+                } else {
+                    alert('PDF generation failed: ' + (data.error || 'Unknown error'));
+                    generatePdfBtn.innerHTML = '<i class="fas fa-download"></i> Generate PDF';
+                    generatePdfBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('PDF generation error:', error);
+                alert('PDF generation failed: ' + error.message);
+                generatePdfBtn.innerHTML = '<i class="fas fa-download"></i> Generate PDF';
+                generatePdfBtn.disabled = false;
+            }
+        });
+    }
+
     // Document preview functionality
     if (previewBtn) {
         previewBtn.addEventListener('click', () => {
@@ -247,7 +395,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Fill all fields functionality
+    // Fill all fields functionality - Updated for HTML workflow
     if (fillAllBtn) {
         fillAllBtn.addEventListener('click', async () => {
             if (!documentId) {
@@ -260,7 +408,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 fillAllBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Filling fields...';
 
                 try {
-                    const response = await fetch(`/api/chat/${documentId}/fill-all/`, {
+                    // Use the new HTML workflow AI fill endpoint
+                    const response = await fetch(`/ai-fill/${documentId}/`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -271,24 +420,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     const data = await response.json();
                     
                     if (data.success) {
-                        // Update all field inputs with the filled data
-                        data.filled_fields.forEach(field => {
-                            const input = document.querySelector(`input[data-field-id="${field.id}"]`);
-                            if (input) {
-                                input.value = field.content;
-                                // Trigger the update
-                                updateField(field.id, field.content);
-                            }
-                        });
-                        
-                        addMessage(`Successfully filled ${data.filled_fields.length} fields with AI suggestions!`, 'bot');
+                        // Reload page to show filled form and generate button
+                        window.location.reload();
                     } else {
-                        addMessage('Error filling fields: ' + data.error, 'bot');
+                        alert('AI filling failed: ' + (data.error || 'Unknown error'));
+                        fillAllBtn.disabled = false;
+                        fillAllBtn.innerHTML = '<i class="fas fa-magic"></i> AI Fill All Fields';
                     }
                 } catch (error) {
                     console.error('Fill all error:', error);
-                    addMessage('Error filling fields: ' + error.message, 'bot');
-                } finally {
+                    alert('AI filling failed: ' + error.message);
                     fillAllBtn.disabled = false;
                     fillAllBtn.innerHTML = '<i class="fas fa-magic"></i> AI Fill All Fields';
                 }
@@ -349,28 +490,94 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Recreate editable PDF functionality
+    if (recreateBtn) {
+        recreateBtn.addEventListener('click', async () => {
+            if (!documentId) {
+                alert('No document loaded');
+                return;
+            }
+
+            if (confirm('This will extract text from your PDF and create a completely new editable PDF with AI auto-filled data. This recreates the PDF exactly like the original but makes it editable with AI-filled content. Continue?')) {
+                recreateBtn.disabled = true;
+                recreateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Recreating PDF with AI...';
+
+                try {
+                    const response = await fetch(`/${documentId}/recreate-editable/`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        }
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        addMessage(`🎉 PDF recreated successfully! Document type: ${data.document_type}. Fields detected: ${data.fields_detected}, Fields filled: ${data.fields_filled}`, 'bot');
+                        
+                        // Show download link
+                        const downloadLink = document.createElement('a');
+                        downloadLink.href = data.download_url;
+                        downloadLink.download = data.output_file;
+                        downloadLink.textContent = 'Download Recreated PDF';
+                        downloadLink.className = 'btn btn-primary';
+                        downloadLink.style.marginTop = '10px';
+                        
+                        // Add download link to the page
+                        const documentActions = document.querySelector('.document-actions');
+                        if (documentActions) {
+                            documentActions.appendChild(downloadLink);
+                        }
+                        
+                        // Show extracted text preview
+                        if (data.extracted_text_preview) {
+                            addMessage(`📄 Extracted text preview: ${data.extracted_text_preview}`, 'bot');
+                        }
+                        
+                        // Show filled data
+                        if (data.filled_data && Object.keys(data.filled_data).length > 0) {
+                            const filledDataText = Object.entries(data.filled_data)
+                                .map(([key, value]) => `${key}: ${value}`)
+                                .join(', ');
+                            addMessage(`🤖 AI-filled data: ${filledDataText}`, 'bot');
+                        }
+                    } else {
+                        addMessage('Error recreating PDF: ' + (data.details || data.error), 'bot');
+                    }
+                } catch (error) {
+                    console.error('Recreate error:', error);
+                    addMessage('Error recreating PDF: ' + error.message, 'bot');
+                } finally {
+                    recreateBtn.disabled = false;
+                    recreateBtn.innerHTML = '<i class="fas fa-file-pdf"></i> 🆕 Recreate Editable PDF (AI-Filled)';
+                }
+            }
+        });
+    }
+
     // Upload file function - NOW WITH AUTOMATIC SEJDA WORKFLOW!
     async function uploadFile(file) {
         const isPDF = file.name.toLowerCase().endsWith('.pdf');
         
-        // Show loading indicator with Sejda workflow message
+        // Show loading indicator for HTML workflow
         const uploadArea = document.getElementById('uploadArea');
         if (uploadArea && isPDF) {
-            // Show live processing window for PDF
+            // Show HTML workflow processing window
             uploadArea.innerHTML = `
                 <div style="max-width: 800px; margin: 0 auto; padding: 30px;">
                     <h2 style="text-align: center; margin-bottom: 30px;">
-                        <i class="fas fa-robot" style="color: #007bff;"></i> AI Processing Your PDF
+                        <i class="fas fa-code" style="color: #007bff;"></i> HTML Workflow Processing
                     </h2>
                     
                     <!-- Live Status Box -->
-                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
                                 color: white; padding: 30px; border-radius: 15px; 
                                 box-shadow: 0 10px 40px rgba(0,0,0,0.2); margin-bottom: 30px;">
                         
                         <div style="font-size: 1.2em; margin-bottom: 20px; text-align: center;">
                             <i class="fas fa-spinner fa-spin"></i> 
-                            <span id="statusMessage">Uploading and analyzing PDF...</span>
+                            <span id="statusMessage">Converting PDF to HTML...</span>
                         </div>
                         
                         <!-- Progress Steps -->
@@ -378,30 +585,26 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div style="display: flex; flex-direction: column; gap: 15px;">
                                 <div id="step1" style="display: flex; align-items: center; gap: 10px;">
                                     <i class="fas fa-spinner fa-spin"></i>
-                                    <span>📄 Reading PDF and detecting fields...</span>
+                                    <span>📄 Reading PDF and extracting layout...</span>
                                 </div>
                                 <div id="step2" style="display: none; align-items: center; gap: 10px;">
                                     <i class="fas fa-spinner fa-spin"></i>
-                                    <span>🤖 Generating AI content for each field...</span>
+                                    <span>🔍 Detecting form fields...</span>
                                 </div>
                                 <div id="step3" style="display: none; align-items: center; gap: 10px;">
                                     <i class="fas fa-spinner fa-spin"></i>
-                                    <span>✨ Opening Sejda Desktop (watch your taskbar!)...</span>
+                                    <span>🌐 Converting to HTML form...</span>
                                 </div>
                                 <div id="step4" style="display: none; align-items: center; gap: 10px;">
                                     <i class="fas fa-spinner fa-spin"></i>
-                                    <span>✍️ AI is filling fields automatically...</span>
-                                </div>
-                                <div id="step5" style="display: none; align-items: center; gap: 10px;">
-                                    <i class="fas fa-spinner fa-spin"></i>
-                                    <span>💾 Saving filled PDF...</span>
+                                    <span>✨ Preparing for AI filling...</span>
                                 </div>
                             </div>
                         </div>
                         
                         <div style="margin-top: 20px; text-align: center; font-size: 0.9em; opacity: 0.9;">
                             <i class="fas fa-info-circle"></i> 
-                            <strong>Tip:</strong> Watch Sejda Desktop window open automatically and see AI fill your form!
+                            <strong>Tip:</strong> Your PDF will be converted to an HTML form that AI can fill automatically!
                         </div>
                     </div>
                     
@@ -426,6 +629,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('csrfmiddlewaretoken', getCookie('csrftoken'));
+        formData.append('use_html_processing', useHtmlProcessing);
         
         try {
             const response = await fetch('/upload/', {
@@ -436,9 +640,17 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
             
             if (data.success) {
-                   // Check if Sejda conversion workflow completed (CHECK THIS FIRST!)
-                   if (data.sejda_converted && data.auto_download) {
-                       // Sejda workflow completed! Show success and auto-download
+                // Check if HTML processing was used
+                if (data.html_processed) {
+                    console.log("HTML processing completed successfully");
+                    // Redirect to document view to show HTML form
+                    window.location.reload();
+                    return;
+                }
+                
+                // Check if Sejda conversion workflow completed (CHECK THIS FIRST!)
+                if (data.pymupdf_converted && data.auto_download) {
+                       // PyMuPDF workflow completed! Show success and auto-download
                        console.log('✅ PDF filled automatically! Auto-downloading...');
                        
                        if (uploadArea) {
@@ -454,18 +666,18 @@ document.addEventListener('DOMContentLoaded', function() {
                                        ✓ PDF saved and ready!
                                    </p>
                                    <div style="margin-bottom: 30px;">
-                                       <iframe src="${data.sejda_fillable_url}" 
+                                       <iframe src="${data.pymupdf_fillable_url}" 
                                                style="width: 100%; height: 500px; border: 2px solid #ddd; border-radius: 8px;"
                                                title="Filled PDF Preview"></iframe>
                                    </div>
                                    <div>
-                                       <a href="${data.sejda_fillable_url}" 
+                                       <a href="${data.pymupdf_fillable_url}" 
                                           class="btn btn-success btn-large" 
                                           download
                                           style="font-size: 1.2em; padding: 15px 40px; margin-right: 10px;">
                                            <i class="fas fa-download"></i> Download Filled PDF
                                        </a>
-                                       <a href="${data.sejda_fillable_url}" 
+                                       <a href="${data.pymupdf_fillable_url}" 
                                           target="_blank"
                                           class="btn btn-primary btn-large" 
                                           style="font-size: 1.2em; padding: 15px 40px;">
@@ -479,7 +691,7 @@ document.addEventListener('DOMContentLoaded', function() {
                        // Auto-download the fillable PDF immediately
                        console.log('Starting auto-download...');
                        const downloadLink = document.createElement('a');
-                       downloadLink.href = data.sejda_fillable_url;
+                       downloadLink.href = data.pymupdf_fillable_url;
                        downloadLink.download = 'filled_contract.pdf';
                        document.body.appendChild(downloadLink);
                        downloadLink.click();
@@ -487,7 +699,7 @@ document.addEventListener('DOMContentLoaded', function() {
                        
                        // Also open in new tab for preview
                        setTimeout(() => {
-                           window.open(data.sejda_fillable_url, '_blank');
+                           window.open(data.pymupdf_fillable_url, '_blank');
                        }, 1000);
                        
                        return;
@@ -563,9 +775,9 @@ document.addEventListener('DOMContentLoaded', function() {
                    }
                 
                    // Regular upload flow (if Sejda not available)
-                   if (data.training) {
-                       showAutomaticTrainingResults(data.training);
-                   }
+                if (data.training) {
+                    showAutomaticTrainingResults(data.training);
+                }
                    
                    if (data?.document?.fillable_pdf) {
                        const fillableUrl = data.document.fillable_pdf;
@@ -574,7 +786,7 @@ document.addEventListener('DOMContentLoaded', function() {
                    
                    // Go back to upload page immediately
                    setTimeout(() => {
-                       window.location.href = '/';
+                window.location.href = '/';
                    }, 2000);
             } else {
                 alert('Upload failed: ' + (data.error || 'Unknown error'));
@@ -954,7 +1166,7 @@ document.addEventListener('DOMContentLoaded', function() {
         generatePdfBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating PDF...';
 
         try {
-            const response = await fetch(`/api/documents/${documentId}/generate-pdf/`, {
+            const response = await fetch(`/generate-pdf/${documentId}/`, {
                 method: 'POST',
                 headers: {
                     'X-CSRFToken': getCookie('csrftoken')
@@ -963,8 +1175,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const data = await response.json();
             if (data.success) {
-                // Download the PDF
-                window.open(`/api/documents/download/${documentId}/`, '_blank');
+                // Download the PDF using the URL from the response
+                if (data.pdf_url) {
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = data.pdf_url;
+                    downloadLink.download = data.pdf_url.split('/').pop();
+                    downloadLink.click();
+                } else {
+                    alert('PDF generated but download URL not provided.');
+                }
             } else {
                 alert('Failed to generate PDF. Please try again.');
             }
@@ -1089,22 +1308,6 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Automatic training completed:', training);
     }
 
-    // Load training stats on page load
-    function loadTrainingStats() {
-        fetch('/api/training-stats/')
-            .then(response => response.json())
-            .then(data => {
-                if (data.document_templates !== undefined) {
-                    console.log('Training Stats:', data);
-                    // You can display these stats somewhere in the UI if needed
-                }
-            })
-            .catch(error => {
-                console.error('Error loading training stats:', error);
-            });
-    }
-
-    // Load training stats when page loads
-    loadTrainingStats();
+    // Training stats removed - not needed for HTML workflow
 });
 

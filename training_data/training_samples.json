@@ -10435,5 +10435,26 @@
     "document_type": "form",
     "context": "Favourite Colour List Box",
     "confidence": 0.5
+  },
+  {
+    "text": "full_name",
+    "field_type": "name",
+    "document_type": "form",
+    "context": "full_name",
+    "confidence": 0.5
+  },
+  {
+    "text": "dob",
+    "field_type": "date_of_birth",
+    "document_type": "form",
+    "context": "dob",
+    "confidence": 0.5
+  },
+  {
+    "text": "signature",
+    "field_type": "text",
+    "document_type": "form",
+    "context": "signature",
+    "confidence": 0.5
   }
 ]

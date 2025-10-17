@@ -103,7 +103,7 @@ class IntelligentFieldFiller:
             return self._generate_dropdown_selection(field, context)
         
         # Use context to refine field type if needed
-        refined_type = self._refine_field_type(field_type, field_context)
+        refined_type = self._refine_field_type(field_type, field_context, field)
         
         # Generate content based on refined type
         # First check in templates
@@ -158,9 +158,15 @@ class IntelligentFieldFiller:
         else:
             return "Selected"
     
-    def _refine_field_type(self, field_type: str, context: str) -> str:
+    def _refine_field_type(self, field_type: str, context: str, field: Dict = None) -> str:
         """Refine field type based on context"""
         context_lower = context.lower()
+        
+        # Also check field name and placeholder for better type detection
+        if field:
+            field_name = field.get('name', '').lower()
+            placeholder = field.get('placeholder', '').lower()
+            context_lower += ' ' + field_name + ' ' + placeholder
         
         # Check for date-related fields
         if any(keyword in context_lower for keyword in ['day of', 'dated on the', '__day']):
@@ -185,6 +191,8 @@ class IntelligentFieldFiller:
             return 'name'
         elif any(keyword in context_lower for keyword in ['email', 'e-mail', 'email address']):
             return 'email'
+        elif any(keyword in context_lower for keyword in ['dob', 'date of birth', 'birth date', 'birthday']):
+            return 'date'
         elif any(keyword in context_lower for keyword in ['phone', 'telephone', 'tel', 'mobile', 'cell']):
             return 'phone'
         elif any(keyword in context_lower for keyword in ['address', 'street', 'location', 'residence']):

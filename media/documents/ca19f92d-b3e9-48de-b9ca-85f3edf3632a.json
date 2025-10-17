@@ -1,0 +1,54 @@
+{
+  "id": "ca19f92d-b3e9-48de-b9ca-85f3edf3632a",
+  "filename": "simple_form_1.pdf",
+  "file_path": "C:\\Users\\Shainesh Nand\\OneDrive\\Documents\\GitHub\\AI-Autofill-Assistant\\media\\uploads\\ca19f92d-b3e9-48de-b9ca-85f3edf3632a_simple_form_1.pdf",
+  "total_blanks": 3,
+  "fields": [
+    {
+      "id": "field_0",
+      "name": "full_name",
+      "field_type": "text",
+      "placeholder": "Full Name",
+      "context": "",
+      "x": 200.0,
+      "y": 140.0,
+      "width": 250.0,
+      "height": 20.0,
+      "page": 0
+    },
+    {
+      "id": "field_1",
+      "name": "dob",
+      "field_type": "text",
+      "placeholder": "Dob",
+      "context": "",
+      "x": 200.0,
+      "y": 190.0,
+      "width": 250.0,
+      "height": 20.0,
+      "page": 0
+    },
+    {
+      "id": "field_2",
+      "name": "signature",
+      "field_type": "text",
+      "placeholder": "Signature",
+      "context": "",
+      "x": 200.0,
+      "y": 240.0,
+      "width": 250.0,
+      "height": 20.0,
+      "page": 0
+    }
+  ],
+  "html_path": "C:\\Users\\Shainesh Nand\\OneDrive\\Documents\\GitHub\\AI-Autofill-Assistant\\media\\processed\\html_ca19f92d-b3e9-48de-b9ca-85f3edf3632a_ca19f92d-b3e9-48de-b9ca-85f3edf3632a_simple_form_1.pdf.html",
+  "html_url": "/media/processed/html_ca19f92d-b3e9-48de-b9ca-85f3edf3632a_ca19f92d-b3e9-48de-b9ca-85f3edf3632a_simple_form_1.pdf.html",
+  "document_type": "document",
+  "extracted_text": "Personal Info Form\nFull Name:\nDate of Birth:\nSignature:\n\n",
+  "html_processed": true,
+  "ai_filled": true,
+  "filled_html_path": "C:\\Users\\Shainesh Nand\\OneDrive\\Documents\\GitHub\\AI-Autofill-Assistant\\media\\processed\\filled_html_ca19f92d-b3e9-48de-b9ca-85f3edf3632a_ca19f92d-b3e9-48de-b9ca-85f3edf3632a_simple_form_1.pdf.html",
+  "filled_html_url": "/media/processed/filled_html_ca19f92d-b3e9-48de-b9ca-85f3edf3632a_ca19f92d-b3e9-48de-b9ca-85f3edf3632a_simple_form_1.pdf.html",
+  "output_pdf_path": "C:\\Users\\Shainesh Nand\\OneDrive\\Documents\\GitHub\\AI-Autofill-Assistant\\media\\processed\\ai_filled_simple_form_1.pdf",
+  "output_pdf_url": "/media/processed/ai_filled_simple_form_1.pdf"
+}
