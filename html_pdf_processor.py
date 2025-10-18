@@ -28,6 +28,10 @@ class Field:
     placeholder: str = ""
     value: str = ""
     required: bool = False
+    # Table-related attributes
+    table_id: str = ""
+    table_row: int = -1
+    table_col: int = -1
 
 
 @dataclass
@@ -98,6 +102,7 @@ class HTMLPDFProcessor:
         extracted_text = ""
         pages_data = []
         all_fields = []
+        text_extracted = False
         
         # Method 1: Try PyMuPDF for AcroForm fields
         try:
@@ -105,7 +110,8 @@ class HTMLPDFProcessor:
             for page_num in range(len(doc)):
                 page = doc[page_num]
                 page_text = page.get_text()
-                extracted_text += page_text + "\n"
+                if not text_extracted:
+                    extracted_text += page_text + "\n"
                 
                 # Extract AcroForm fields if they exist
                 widgets = page.widgets()
@@ -130,34 +136,60 @@ class HTMLPDFProcessor:
                 pages_data.append({
                     'page_number': page_num,
                     'text': page_text,
-                    'fields': page_fields
+                    'fields': page_fields,
+                    'tables': []  # Initialize empty tables
                 })
             
             doc.close()
+            text_extracted = True
             
         except Exception as e:
             print(f"PyMuPDF extraction failed: {e}")
         
-        # Method 2: Use pdfplumber for additional field detection
+        # Method 2: Use pdfplumber for additional field detection and table extraction
         if not all_fields:
             try:
                 with pdfplumber.open(pdf_path) as pdf:
                     for page_num, page in enumerate(pdf.pages):
                         page_text = page.extract_text() or ""
-                        extracted_text += page_text + "\n"
+                        # Only add text if we haven't extracted it already
+                        if not text_extracted:
+                            extracted_text += page_text + "\n"
                         
                         # Detect visual blanks and form-like patterns
                         visual_fields = self._detect_visual_fields(page_text, page_num)
                         all_fields.extend(visual_fields)
                         
-                        pages_data.append({
-                            'page_number': page_num,
-                            'text': page_text,
-                            'fields': visual_fields
-                        })
+                        # Extract tables from the page
+                        tables = self._extract_tables_from_page(page, page_num)
+                        
+                        # Only add to pages_data if we haven't already processed this page
+                        if not pages_data or len(pages_data) <= page_num:
+                            pages_data.append({
+                                'page_number': page_num,
+                                'text': page_text,
+                                'fields': visual_fields,
+                                'tables': tables
+                            })
+                        else:
+                            # Update existing page data with tables
+                            pages_data[page_num]['tables'] = tables
                         
             except Exception as e:
                 print(f"PDFplumber extraction failed: {e}")
+        
+        # Also extract tables using PyMuPDF if we used that method
+        if text_extracted and pages_data:
+            try:
+                doc = fitz.open(pdf_path)
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
+                    tables = self._extract_tables_with_pymupdf(page, page_num)
+                    if page_num < len(pages_data):
+                        pages_data[page_num]['tables'] = tables
+                doc.close()
+            except Exception as e:
+                print(f"PyMuPDF table extraction failed: {e}")
         
         # Determine document type
         document_type = self._analyze_document_type(extracted_text)
@@ -188,55 +220,550 @@ class HTMLPDFProcessor:
         """Detect form fields from visual patterns in text"""
         fields = []
         
-        # Pattern 1: Dotted lines (...)
-        dotted_pattern = r'\.{3,}'
-        for match in re.finditer(dotted_pattern, text):
-            field = Field(
-                id=f"dotted_{len(fields)}",
-                name=f"field_{len(fields)}",
-                field_type='text',
-                x=0,  # Will be positioned in HTML
-                y=0,
-                width=100,
-                height=20,
-                page=page_num,
-                placeholder="Enter value"
-            )
-            fields.append(field)
+        # Pattern 1: Dotted lines (...) - more aggressive detection
+        dotted_patterns = [
+            r'\.{3,}',  # Basic dots
+            r'\.{2,}\s*\.{2,}',  # Dotted lines with spaces
+            r'\.{4,}',  # Longer dotted lines
+        ]
+        for pattern in dotted_patterns:
+            for match in re.finditer(pattern, text):
+                field = Field(
+                    id=f"dotted_{len(fields)}",
+                    name=f"field_{len(fields)}",
+                    field_type='text',
+                    x=0,  # Will be positioned in HTML
+                    y=0,
+                    width=len(match.group()) * 8,  # Width based on length
+                    height=20,
+                    page=page_num,
+                    placeholder=self._generate_contextual_placeholder(text, match.start()),
+                    value=""  # Initialize empty
+                )
+                fields.append(field)
         
-        # Pattern 2: Underscore lines (___)
-        underscore_pattern = r'_{3,}'
-        for match in re.finditer(underscore_pattern, text):
-            field = Field(
-                id=f"underscore_{len(fields)}",
-                name=f"field_{len(fields)}",
-                field_type='text',
-                x=0,
-                y=0,
-                width=100,
-                height=20,
-                page=page_num,
-                placeholder="Enter value"
-            )
-            fields.append(field)
+        # Pattern 2: Underscore lines (___) - more aggressive detection
+        underscore_patterns = [
+            r'_{3,}',  # Basic underscores
+            r'_{2,}\s*_{2,}',  # Underscores with spaces
+            r'_{4,}',  # Longer underscore lines
+        ]
+        for pattern in underscore_patterns:
+            for match in re.finditer(pattern, text):
+                field = Field(
+                    id=f"underscore_{len(fields)}",
+                    name=f"field_{len(fields)}",
+                    field_type='text',
+                    x=0,
+                    y=0,
+                    width=len(match.group()) * 8,
+                    height=20,
+                    page=page_num,
+                    placeholder=self._generate_contextual_placeholder(text, match.start()),
+                    value=""
+                )
+                fields.append(field)
         
-        # Pattern 3: Dash lines (---)
-        dash_pattern = r'-{3,}'
-        for match in re.finditer(dash_pattern, text):
-            field = Field(
-                id=f"dash_{len(fields)}",
-                name=f"field_{len(fields)}",
-                field_type='text',
-                x=0,
-                y=0,
-                width=100,
-                height=20,
-                page=page_num,
-                placeholder="Enter value"
-            )
-            fields.append(field)
+        # Pattern 3: Dash lines (---) - more aggressive detection
+        dash_patterns = [
+            r'-{3,}',  # Basic dashes
+            r'-{2,}\s*-{2,}',  # Dashes with spaces
+            r'-{4,}',  # Longer dash lines
+        ]
+        for pattern in dash_patterns:
+            for match in re.finditer(pattern, text):
+                field = Field(
+                    id=f"dash_{len(fields)}",
+                    name=f"field_{len(fields)}",
+                    field_type='text',
+                    x=0,
+                    y=0,
+                    width=len(match.group()) * 8,
+                    height=20,
+                    page=page_num,
+                    placeholder=self._generate_contextual_placeholder(text, match.start()),
+                    value=""
+                )
+                fields.append(field)
+        
+        # Pattern 4: Empty brackets () - detect fillable blanks
+        bracket_patterns = [
+            r'\(\s*\)',  # Empty brackets
+            r'\(\s*\.{2,}\s*\)',  # Brackets with dots
+            r'\(\s*_{2,}\s*\)',  # Brackets with underscores
+        ]
+        for pattern in bracket_patterns:
+            for match in re.finditer(pattern, text):
+                field = Field(
+                    id=f"bracket_{len(fields)}",
+                    name=f"field_{len(fields)}",
+                    field_type='text',
+                    x=0,
+                    y=0,
+                    width=80,
+                    height=20,
+                    page=page_num,
+                    placeholder=self._generate_contextual_placeholder(text, match.start()),
+                    value=""
+                )
+                fields.append(field)
+        
+        # Pattern 5: Blank spaces that look like fields
+        blank_patterns = [
+            r'\s{5,}',  # Multiple spaces (5+ spaces)
+            r'\t+',     # Tab characters
+        ]
+        for pattern in blank_patterns:
+            for match in re.finditer(pattern, text):
+                # Only create fields for significant blanks
+                if len(match.group().strip()) == 0 and len(match.group()) >= 5:
+                    field = Field(
+                        id=f"blank_{len(fields)}",
+                        name=f"field_{len(fields)}",
+                        field_type='text',
+                        x=0,
+                        y=0,
+                        width=len(match.group()) * 4,
+                        height=20,
+                        page=page_num,
+                        placeholder=self._generate_contextual_placeholder(text, match.start()),
+                        value=""
+                    )
+                    fields.append(field)
         
         return fields
+    
+    def _generate_contextual_placeholder(self, text: str, position: int) -> str:
+        """Generate a contextual placeholder based on surrounding text"""
+        # Get context around the field position
+        start = max(0, position - 50)
+        end = min(len(text), position + 50)
+        context = text[start:end].lower()
+        
+        # Common field type patterns
+        if any(word in context for word in ['name', 'full name', 'given name', 'family name']):
+            return "Enter name"
+        elif any(word in context for word in ['address', 'street', 'location']):
+            return "Enter address"
+        elif any(word in context for word in ['date', 'day', 'month', 'year']):
+            return "Enter date"
+        elif any(word in context for word in ['phone', 'mobile', 'contact', 'number']):
+            return "Enter phone number"
+        elif any(word in context for word in ['email', 'e-mail']):
+            return "Enter email"
+        elif any(word in context for word in ['id', 'identification', 'student id']):
+            return "Enter ID number"
+        elif any(word in context for word in ['signature', 'sign']):
+            return "Enter signature"
+        elif any(word in context for word in ['amount', 'salary', 'wage', 'money', 'cost']):
+            return "Enter amount"
+        elif any(word in context for word in ['age', 'birth', 'born']):
+            return "Enter age"
+        elif any(word in context for word in ['company', 'employer', 'organization']):
+            return "Enter company name"
+        elif any(word in context for word in ['position', 'job', 'title', 'role']):
+            return "Enter position"
+        elif any(word in context for word in ['department', 'division']):
+            return "Enter department"
+        elif any(word in context for word in ['city', 'town']):
+            return "Enter city"
+        elif any(word in context for word in ['country', 'nation']):
+            return "Enter country"
+        elif any(word in context for word in ['postcode', 'zip', 'code']):
+            return "Enter postcode"
+        elif any(word in context for word in ['yes', 'no', 'agree', 'accept']):
+            return "Enter yes/no"
+        else:
+            return "Enter value"
+    
+    def _extract_tables_from_page(self, page, page_num: int) -> List[Dict]:
+        """Extract tables from a PDF page using pdfplumber"""
+        tables = []
+        
+        try:
+            # Extract tables using pdfplumber's table detection
+            page_tables = page.extract_tables()
+            
+            for table_idx, table in enumerate(page_tables):
+                if table and len(table) > 0:
+                    # Process the table data
+                    processed_table = {
+                        'id': f"table_{page_num}_{table_idx}",
+                        'page': page_num,
+                        'rows': len(table),
+                        'cols': len(table[0]) if table else 0,
+                        'data': table,
+                        'has_form_fields': False,
+                        'fields': []
+                    }
+                    
+                    # Check if table contains form fields (blanks, underscores, etc.)
+                    for row_idx, row in enumerate(table):
+                        for col_idx, cell in enumerate(row):
+                            if cell and isinstance(cell, str):
+                                # Check for field indicators in table cells
+                                if self._is_table_cell_field(cell):
+                                    field = Field(
+                                        id=f"table_field_{page_num}_{table_idx}_{row_idx}_{col_idx}",
+                                        name=f"table_field_{row_idx}_{col_idx}",
+                                        field_type='text',
+                                        x=0,  # Will be positioned in HTML
+                                        y=0,
+                                        width=100,
+                                        height=20,
+                                        page=page_num,
+                                        placeholder=self._extract_field_placeholder(cell),
+                                        table_id=processed_table['id'],
+                                        table_row=row_idx,
+                                        table_col=col_idx
+                                    )
+                                    processed_table['fields'].append(field)
+                                    processed_table['has_form_fields'] = True
+                    
+                    tables.append(processed_table)
+                    
+        except Exception as e:
+            print(f"Error extracting tables from page {page_num}: {e}")
+        
+        return tables
+    
+    def _extract_tables_with_pymupdf(self, page, page_num: int) -> List[Dict]:
+        """Extract tables from a PDF page using PyMuPDF"""
+        tables = []
+        
+        try:
+            # Get page text and try to identify table-like structures
+            text = page.get_text()
+            
+            # Look for table patterns in text
+            table_patterns = self._identify_table_patterns(text)
+            
+            for table_idx, pattern in enumerate(table_patterns):
+                table_data = self._parse_table_from_pattern(pattern)
+                
+                if table_data:
+                    processed_table = {
+                        'id': f"pymupdf_table_{page_num}_{table_idx}",
+                        'page': page_num,
+                        'rows': len(table_data),
+                        'cols': len(table_data[0]) if table_data else 0,
+                        'data': table_data,
+                        'has_form_fields': False,
+                        'fields': []
+                    }
+                    
+                    # Check for form fields in table
+                    for row_idx, row in enumerate(table_data):
+                        for col_idx, cell in enumerate(row):
+                            if cell and isinstance(cell, str):
+                                if self._is_table_cell_field(cell):
+                                    field = Field(
+                                        id=f"pymupdf_table_field_{page_num}_{table_idx}_{row_idx}_{col_idx}",
+                                        name=f"table_field_{row_idx}_{col_idx}",
+                                        field_type='text',
+                                        x=0,
+                                        y=0,
+                                        width=100,
+                                        height=20,
+                                        page=page_num,
+                                        placeholder=self._extract_field_placeholder(cell),
+                                        table_id=processed_table['id'],
+                                        table_row=row_idx,
+                                        table_col=col_idx
+                                    )
+                                    processed_table['fields'].append(field)
+                                    processed_table['has_form_fields'] = True
+                    
+                    tables.append(processed_table)
+                    
+        except Exception as e:
+            print(f"Error extracting tables with PyMuPDF from page {page_num}: {e}")
+        
+        return tables
+    
+    def _is_table_cell_field(self, cell_content: str) -> bool:
+        """Check if a table cell contains a form field"""
+        if not cell_content or not isinstance(cell_content, str):
+            return False
+        
+        cell = cell_content.strip()
+        
+        # Check for common field patterns
+        field_patterns = [
+            r'\.{3,}',  # Dotted lines
+            r'_{3,}',   # Underscore lines
+            r'___+',    # Multiple underscores
+            r'\[.*\]',  # Brackets
+            r'\(.*\)',  # Parentheses
+            r'Enter.*', # "Enter value" type text
+            r'Fill.*',  # "Fill in" type text
+            r'\.\.\.',  # Three dots
+            r'^\s*$',   # Empty or whitespace only
+        ]
+        
+        for pattern in field_patterns:
+            if re.search(pattern, cell, re.IGNORECASE):
+                return True
+        
+        return False
+    
+    def _extract_field_placeholder(self, cell_content: str) -> str:
+        """Extract a meaningful placeholder from table cell content"""
+        if not cell_content:
+            return "Enter value"
+        
+        cell = cell_content.strip()
+        
+        # If it's just dots or underscores, return generic placeholder
+        if re.match(r'^[._\s]+$', cell):
+            return "Enter value"
+        
+        # If it contains text, use that as placeholder
+        if len(cell) > 0 and not re.match(r'^[._\s]+$', cell):
+            return cell
+        
+        return "Enter value"
+    
+    def _identify_table_patterns(self, text: str) -> List[str]:
+        """Identify potential table patterns in text"""
+        patterns = []
+        
+        # Look for lines that might be table rows
+        lines = text.split('\n')
+        potential_table_lines = []
+        
+        # Special handling for structured sections like "Working Conditions"
+        structured_sections = self._identify_structured_sections(text)
+        patterns.extend(structured_sections)
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Check if line has multiple columns (separated by spaces, tabs, or other delimiters)
+            if self._looks_like_table_row(line):
+                potential_table_lines.append(line)
+            else:
+                # If we have accumulated table lines and hit a non-table line, 
+                # save the accumulated lines as a potential table
+                if len(potential_table_lines) >= 2:
+                    patterns.append('\n'.join(potential_table_lines))
+                potential_table_lines = []
+        
+        # Don't forget the last potential table
+        if len(potential_table_lines) >= 2:
+            patterns.append('\n'.join(potential_table_lines))
+        
+        return patterns
+    
+    def _identify_structured_sections(self, text: str) -> List[str]:
+        """Identify structured sections that should be treated as tables"""
+        patterns = []
+        
+        # Look for "Working Conditions" section specifically
+        working_conditions_pattern = self._extract_working_conditions_table(text)
+        if working_conditions_pattern:
+            patterns.append(working_conditions_pattern)
+        
+        return patterns
+    
+    def _extract_working_conditions_table(self, text: str) -> str:
+        """Extract the Working Conditions table structure"""
+        lines = text.split('\n')
+        
+        # Find the start of Working Conditions section
+        start_idx = None
+        for i, line in enumerate(lines):
+            if 'Working Conditions' in line:
+                # Look for "Sr." in the next few lines
+                for j in range(i+1, min(i+5, len(lines))):
+                    if 'Sr.' in lines[j] and 'Rights' in lines[j]:
+                        start_idx = i
+                        break
+                if start_idx is not None:
+                    break
+        
+        if start_idx is None:
+            return ""
+        
+        # Extract the table structure
+        table_lines = []
+        i = start_idx
+        
+        # Add the section title and header lines
+        while i < len(lines):
+            line = lines[i].strip()
+            if not line:
+                i += 1
+                continue
+                
+            # Stop at next major section
+            if (line.startswith('10.') or line.startswith('11.') or 
+                line.startswith('Notice') or line.startswith('Interpretation')):
+                break
+            
+            # Add all lines that are part of the Working Conditions table
+            table_lines.append(line)
+            i += 1
+        
+        if len(table_lines) >= 5:  # Minimum rows for a meaningful table
+            return '\n'.join(table_lines)
+        
+        return ""
+    
+    def _looks_like_table_row(self, line: str) -> bool:
+        """Check if a line looks like a table row"""
+        line = line.strip()
+        if not line or len(line) < 5:
+            return False
+        
+        # Count potential column separators
+        tab_count = line.count('\t')
+        
+        # Look for patterns like "Item | Value | Notes" with proper separators
+        if '|' in line and line.count('|') >= 2:
+            # Make sure it's not just text with pipes in it
+            parts = line.split('|')
+            if len(parts) >= 3 and all(len(part.strip()) > 0 for part in parts):
+                return True
+        
+        # Only consider tab-separated as table rows if there are multiple meaningful columns
+        if tab_count > 0:
+            parts = line.split('\t')
+            if len(parts) >= 2 and all(len(part.strip()) > 0 for part in parts):
+                return True
+        
+        # Look for structured data patterns (like numbered lists with consistent spacing)
+        # But be more strict about it
+        words = line.split()
+        if len(words) >= 3:
+            # Check if it looks like structured data (not regular text)
+            # Avoid treating regular sentences as table rows
+            if any(char in line for char in ['\t', '|']) or self._has_table_like_structure(line):
+                return True
+        
+        return False
+    
+    def _has_table_like_structure(self, line: str) -> bool:
+        """Check if line has table-like structure without being regular text"""
+        # Look for patterns that suggest structured data
+        # Multiple short segments separated by spaces
+        words = line.split()
+        if len(words) < 3:
+            return False
+        
+        # Check if words are relatively short and evenly spaced (table-like)
+        avg_word_length = sum(len(word) for word in words) / len(words)
+        if avg_word_length < 8:  # Short words suggest structured data
+            # Check for consistent spacing patterns
+            if line.count('  ') >= 2:  # Multiple double spaces suggest table formatting
+                return True
+        
+        return False
+    
+    def _parse_table_from_pattern(self, pattern: str) -> List[List[str]]:
+        """Parse a table pattern into structured data"""
+        lines = pattern.split('\n')
+        table_data = []
+        
+        # Special handling for Working Conditions table
+        if 'Working Conditions' in pattern:
+            return self._parse_working_conditions_table(pattern)
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Try different parsing methods
+            row_data = None
+            
+            # Method 1: Tab-separated
+            if '\t' in line:
+                row_data = [cell.strip() for cell in line.split('\t')]
+            
+            # Method 2: Pipe-separated
+            elif '|' in line:
+                row_data = [cell.strip() for cell in line.split('|')]
+            
+            # Method 3: Space-separated (be careful with this)
+            else:
+                # Split by multiple spaces
+                row_data = [cell.strip() for cell in re.split(r'\s{2,}', line)]
+            
+            if row_data:
+                table_data.append(row_data)
+        
+        return table_data
+    
+    def _parse_working_conditions_table(self, pattern: str) -> List[List[str]]:
+        """Parse the Working Conditions table specifically"""
+        lines = pattern.split('\n')
+        table_data = []
+        
+        # This is a structured table with specific format:
+        # Header: Sr. Rights | Provisions | Remarks
+        # Rows: 1 | Working Hours and rest periods | 8 hours a day...
+        
+        # Add header row
+        table_data.append(['Sr.', 'Rights', 'Provisions', 'Remarks'])
+        
+        current_row = []
+        row_number = None
+        collecting_content = False
+        
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Skip the section title
+            if 'Working Conditions' in line:
+                continue
+            
+            # Skip the header row (we already added it)
+            if 'Sr.' in line and 'Rights' in line:
+                continue
+            
+            # Check if this is a row number (like "1", "2", etc.)
+            if re.match(r'^\d+$', line):
+                # Save previous row if we have one
+                if current_row and row_number is not None:
+                    # Pad the row to 4 columns if needed
+                    while len(current_row) < 4:
+                        current_row.append('')
+                    table_data.append(current_row)
+                
+                # Start new row
+                row_number = line
+                current_row = [row_number, '', '', '']  # Initialize with 4 columns
+                collecting_content = False
+                continue
+            
+            # If we have a row number, we're collecting content
+            if row_number is not None:
+                # Determine which column this content belongs to
+                # This is a simplified approach - in practice, you might need more sophisticated logic
+                if not collecting_content:
+                    # First content line goes to "Rights" column
+                    current_row[1] = line
+                    collecting_content = True
+                else:
+                    # Additional content lines go to "Provisions" or "Remarks" columns
+                    if not current_row[2]:  # Provisions column is empty
+                        current_row[2] = line
+                    else:  # Append to Provisions or move to Remarks
+                        current_row[2] += ' ' + line
+        
+        # Don't forget the last row
+        if current_row and row_number is not None:
+            # Pad the row to 4 columns if needed
+            while len(current_row) < 4:
+                current_row.append('')
+            table_data.append(current_row)
+        
+        return table_data
     
     def _analyze_document_type(self, text: str) -> str:
         """Analyze text to determine document type"""
@@ -315,6 +842,40 @@ class HTMLPDFProcessor:
             line-height: 18px;
             vertical-align: baseline;
             position: relative;
+        }}
+        
+        /* Table styling */
+        .pdf-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 11pt;
+            border: 1px solid #000;
+        }}
+        
+        .table-cell {{
+            border: 1px solid #000;
+            padding: 8px;
+            vertical-align: top;
+            font-size: 11pt;
+            line-height: 1.4;
+        }}
+        
+        .table-input {{
+            width: 100%;
+            border: none;
+            background: transparent;
+            font-family: inherit;
+            font-size: 11pt;
+            padding: 2px 4px;
+            outline: none;
+            border-bottom: 1px solid #000;
+        }}
+        
+        .table-checkbox {{
+            width: 15px;
+            height: 15px;
+            margin: 0;
         }}
         
         /* PDF-specific styling for better rendering */
@@ -545,6 +1106,13 @@ class HTMLPDFProcessor:
             )
             
             html_content += f'            <div class="text-content">{page_html}</div>\n'
+            
+            # Process tables if they exist
+            if 'tables' in page and page['tables']:
+                for table in page['tables']:
+                    table_html = self._convert_table_to_html(table)
+                    html_content += f'            {table_html}\n'
+            
             html_content += '        </div>\n'
         
         html_content += """
@@ -586,8 +1154,9 @@ class HTMLPDFProcessor:
                     break
             
             if not field_added:
-                # Regular text line - preserve exactly as it appears in the PDF
-                html_content += f'<div class="text-content">{line}</div>\n'
+                # Check if this line contains visual field indicators that should be converted
+                converted_line = self._convert_visual_indicators_to_inputs(line, fields)
+                html_content += f'<div class="text-content">{converted_line}</div>\n'
         
         # Add any remaining fields that weren't caught by the text processing
         for field in fields:
@@ -610,13 +1179,146 @@ class HTMLPDFProcessor:
         
         return html_content
     
+    def _convert_visual_indicators_to_inputs(self, line: str, fields: List[Field]) -> str:
+        """Convert visual field indicators in a line to input fields"""
+        converted_line = line
+        
+        # Replace underscore patterns with input fields
+        underscore_patterns = [r'_{3,}', r'_{2,}\s*_{2,}', r'_{4,}']
+        for pattern in underscore_patterns:
+            matches = list(re.finditer(pattern, converted_line))
+            for i, match in enumerate(matches):
+                # Find a field for this pattern
+                field_id = f"underscore_{i}"
+                field = next((f for f in fields if f.id == field_id), None)
+                if field:
+                    placeholder = field.placeholder
+                else:
+                    placeholder = "Enter value"
+                
+                replacement = f'<input type="text" class="input-line" placeholder="{placeholder}" style="width: {len(match.group()) * 8}px; border-bottom: 1px solid #000; border-top: none; border-left: none; border-right: none; background: transparent;">'
+                converted_line = converted_line.replace(match.group(), replacement, 1)
+        
+        # Replace dotted patterns with input fields
+        dotted_patterns = [r'\.{3,}', r'\.{2,}\s*\.{2,}', r'\.{4,}']
+        for pattern in dotted_patterns:
+            matches = list(re.finditer(pattern, converted_line))
+            for i, match in enumerate(matches):
+                # Find a field for this pattern
+                field_id = f"dotted_{i}"
+                field = next((f for f in fields if f.id == field_id), None)
+                if field:
+                    placeholder = field.placeholder
+                else:
+                    placeholder = "Enter value"
+                
+                replacement = f'<input type="text" class="input-line" placeholder="{placeholder}" style="width: {len(match.group()) * 8}px; border-bottom: 1px dotted #000; border-top: none; border-left: none; border-right: none; background: transparent;">'
+                converted_line = converted_line.replace(match.group(), replacement, 1)
+        
+        # Replace bracket patterns with input fields
+        bracket_patterns = [r'\(\s*\)', r'\(\s*\.{2,}\s*\)', r'\(\s*_{2,}\s*\)']
+        for pattern in bracket_patterns:
+            matches = list(re.finditer(pattern, converted_line))
+            for i, match in enumerate(matches):
+                # Find a field for this pattern
+                field_id = f"bracket_{i}"
+                field = next((f for f in fields if f.id == field_id), None)
+                if field:
+                    placeholder = field.placeholder
+                else:
+                    placeholder = "Enter value"
+                
+                replacement = f'<input type="text" class="input-line" placeholder="{placeholder}" style="width: 80px; border: 1px solid #000; background: transparent;">'
+                converted_line = converted_line.replace(match.group(), replacement, 1)
+        
+        return converted_line
+    
+    def _convert_table_to_html(self, table: Dict) -> str:
+        """Convert a table dictionary to HTML table with form fields"""
+        if not table or not table.get('data'):
+            return ""
+        
+        table_id = table.get('id', 'table')
+        table_data = table['data']
+        table_fields = table.get('fields', [])
+        
+        # Create a mapping of field positions for quick lookup
+        field_map = {}
+        for field in table_fields:
+            if hasattr(field, 'table_row') and hasattr(field, 'table_col'):
+                key = (field.table_row, field.table_col)
+                field_map[key] = field
+        
+        html = f'        <table class="pdf-table" id="{table_id}">\n'
+        
+        for row_idx, row in enumerate(table_data):
+            html += '            <tr>\n'
+            
+            for col_idx, cell in enumerate(row):
+                cell_content = str(cell) if cell is not None else ""
+                
+                # Check if this cell has a form field
+                field_key = (row_idx, col_idx)
+                if field_key in field_map:
+                    field = field_map[field_key]
+                    # Replace cell content with form field
+                    if field.field_type == 'checkbox':
+                        html += f'                <td class="table-cell"><input type="checkbox" class="table-checkbox" id="{field.id}" name="{field.name}"></td>\n'
+                    else:
+                        html += f'                <td class="table-cell"><input type="{field.field_type}" class="table-input" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}"></td>\n'
+                else:
+                    # Regular cell content
+                    html += f'                <td class="table-cell">{cell_content}</td>\n'
+            
+            html += '            </tr>\n'
+        
+        html += '        </table>\n'
+        
+        return html
+    
     def _should_embed_field_in_line(self, line: str, field: Field) -> bool:
         """Check if a field should be embedded in a specific line"""
         line_lower = line.lower()
         field_name_lower = field.name.lower()
         field_placeholder_lower = field.placeholder.lower()
         
-        # Check for common field patterns in the contract
+        # First, check if the line contains the visual field indicator that this field represents
+        if field.id.startswith('dotted'):
+            # Check if line contains dotted patterns
+            dotted_patterns = [r'\.{3,}', r'\.{2,}\s*\.{2,}', r'\.{4,}']
+            for pattern in dotted_patterns:
+                if re.search(pattern, line):
+                    return True
+        
+        elif field.id.startswith('underscore'):
+            # Check if line contains underscore patterns
+            underscore_patterns = [r'_{3,}', r'_{2,}\s*_{2,}', r'_{4,}']
+            for pattern in underscore_patterns:
+                if re.search(pattern, line):
+                    return True
+        
+        elif field.id.startswith('dash'):
+            # Check if line contains dash patterns
+            dash_patterns = [r'-{3,}', r'-{2,}\s*-{2,}', r'-{4,}']
+            for pattern in dash_patterns:
+                if re.search(pattern, line):
+                    return True
+        
+        elif field.id.startswith('bracket'):
+            # Check if line contains bracket patterns
+            bracket_patterns = [r'\(\s*\)', r'\(\s*\.{2,}\s*\)', r'\(\s*_{2,}\s*\)']
+            for pattern in bracket_patterns:
+                if re.search(pattern, line):
+                    return True
+        
+        elif field.id.startswith('blank'):
+            # Check if line contains blank patterns
+            blank_patterns = [r'\s{5,}', r'\t+']
+            for pattern in blank_patterns:
+                if re.search(pattern, line):
+                    return True
+        
+        # Fallback: Check for common field patterns in the contract
         if 'full name' in line_lower and ('name' in field_name_lower or 'name' in field_placeholder_lower):
             return True
         elif 'given name' in line_lower and ('name' in field_name_lower or 'name' in field_placeholder_lower):
@@ -677,10 +1379,50 @@ class HTMLPDFProcessor:
     
     def _embed_field_in_line(self, line: str, field: Field) -> str:
         """Embed a field naturally within a line of text"""
-        # Find the position where the field should be embedded
-        # Look for common patterns like "Full Name:" followed by space or line
+        # Replace the field indicator with an input field based on field type
         
-        if ':' in line:
+        if field.id.startswith('dotted'):
+            # Replace dotted lines with input field
+            dotted_patterns = [r'\.{3,}', r'\.{2,}\s*\.{2,}', r'\.{4,}']
+            for pattern in dotted_patterns:
+                if re.search(pattern, line):
+                    replacement = f'<input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}" style="width: {field.width}px;">'
+                    return re.sub(pattern, replacement, line, count=1)
+        
+        elif field.id.startswith('underscore'):
+            # Replace underscore lines with input field
+            underscore_patterns = [r'_{3,}', r'_{2,}\s*_{2,}', r'_{4,}']
+            for pattern in underscore_patterns:
+                if re.search(pattern, line):
+                    replacement = f'<input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}" style="width: {field.width}px;">'
+                    return re.sub(pattern, replacement, line, count=1)
+        
+        elif field.id.startswith('dash'):
+            # Replace dash lines with input field
+            dash_patterns = [r'-{3,}', r'-{2,}\s*-{2,}', r'-{4,}']
+            for pattern in dash_patterns:
+                if re.search(pattern, line):
+                    replacement = f'<input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}" style="width: {field.width}px;">'
+                    return re.sub(pattern, replacement, line, count=1)
+        
+        elif field.id.startswith('bracket'):
+            # Replace bracket patterns with input field
+            bracket_patterns = [r'\(\s*\)', r'\(\s*\.{2,}\s*\)', r'\(\s*_{2,}\s*\)']
+            for pattern in bracket_patterns:
+                if re.search(pattern, line):
+                    replacement = f'<input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}" style="width: {field.width}px;">'
+                    return re.sub(pattern, replacement, line, count=1)
+        
+        elif field.id.startswith('blank'):
+            # Replace blank spaces with input field
+            blank_patterns = [r'\s{5,}', r'\t+']
+            for pattern in blank_patterns:
+                if re.search(pattern, line):
+                    replacement = f'<input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}" style="width: {field.width}px;">'
+                    return re.sub(pattern, replacement, line, count=1)
+        
+        # Handle colon-based patterns (legacy support)
+        elif ':' in line:
             # Split at the colon and add the field after it
             parts = line.split(':', 1)
             if len(parts) == 2:
@@ -689,9 +1431,9 @@ class HTMLPDFProcessor:
                 
                 # If there's text after the colon, replace it with the field
                 if rest:
-                    return f'{label} <span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>'
+                    return f'{label} <input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}">'
                 else:
-                    return f'{label} <span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>'
+                    return f'{label} <input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}">'
         
         # Handle specific contract patterns
         if 'employer' in line.lower() and 'hereinafter' in line.lower():
