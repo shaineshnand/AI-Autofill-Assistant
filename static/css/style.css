@@ -1003,6 +1003,72 @@ body {
     border: 1px solid #bee5eb;
 }
 
+/* Chat Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes typingDots {
+    0%, 20% { opacity: 0.2; }
+    40% { opacity: 1; }
+    60%, 100% { opacity: 0.2; }
+}
+
+.typing-indicator .dots span {
+    animation: typingDots 1.4s infinite;
+}
+
+.typing-indicator .dots span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-indicator .dots span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+.typing-indicator {
+    opacity: 0.8;
+}
+
+/* Quick action buttons */
+.quick-action-btn {
+    transition: all 0.2s ease;
+}
+
+.quick-action-btn:hover {
+    background: #007bff !important;
+    color: white !important;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0, 123, 255, 0.3);
+}
+
+.quick-action-btn:active {
+    transform: translateY(0);
+}
+
+/* Enhanced message styling */
+.message.bot .message-content strong {
+    color: #007bff;
+}
+
+.message.bot .message-content ul {
+    list-style-type: none;
+}
+
+.message.bot .message-content ul li:before {
+    content: "✓ ";
+    color: #28a745;
+    font-weight: bold;
+    margin-right: 5px;
+}
+
 @media (max-width: 768px) {
     .app {
         flex-direction: column;
@@ -1014,6 +1080,15 @@ body {
     
     .chat-section {
         max-height: 400px;
+    }
+    
+    .quick-actions {
+        padding: 5px !important;
+    }
+    
+    .quick-action-btn {
+        font-size: 0.7em !important;
+        padding: 3px 8px !important;
     }
 }
 

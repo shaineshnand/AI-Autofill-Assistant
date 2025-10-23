@@ -59,12 +59,44 @@
                         <p>Found {{ document.total_blanks }} fields in "{{ document.filename }}"</p>
                     </div>
                     
-                    <!-- HTML Form Display -->
-                    <div class="html-form-container">
-                        <div class="form-header">
-                            <h3><i class="fas fa-edit"></i> Fillable Form</h3>
-                            <p>Review and edit the form fields below:</p>
-                        </div>
+                      <!-- HTML Form Display -->
+                      <div class="html-form-container">
+                         <div class="form-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                             <div>
+                                 <h3><i class="fas fa-edit"></i> Fillable Form</h3>
+                                 <p>Review and edit the form fields below:</p>
+                             </div>
+                             <div style="display: flex; gap: 10px; align-items: center;">
+                                 <button class="btn btn-success" id="editModeBtn" 
+                                         style="padding: 10px 20px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border: none;">
+                                     <i class="fas fa-edit"></i> Edit Mode
+                                 </button>
+                                 <div id="editModeButtons" style="display: none; gap: 10px; align-items: center;">
+                                     <button class="btn btn-info" id="addCustomFieldBtn" 
+                                             style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
+                                         <i class="fas fa-plus-circle"></i> Add Custom Field
+                                     </button>
+                                     <button class="btn btn-warning" id="deleteAllFieldsBtn" 
+                                             style="padding: 10px 20px; background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%); border: none; color: #000;">
+                                         <i class="fas fa-trash"></i> Delete All Fields
+                                     </button>
+                                 </div>
+                             </div>
+                         </div>
+                         
+                         <!-- Add Field Mode Instructions -->
+                         <div id="addFieldInstructions" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); animation: fadeIn 0.3s ease-in;">
+                             <div style="display: flex; justify-content: space-between; align-items: start;">
+                                 <div>
+                                     <strong style="font-size: 1.1em;">✨ Add Field Mode Active!</strong><br>
+                                     <span style="opacity: 0.95; font-size: 0.95em;">Click anywhere in the document below where you want to add a new editable field.</span>
+                                 </div>
+                                 <button id="cancelAddFieldBtn"
+                                         style="padding: 8px 15px; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.2s;">
+                                     <i class="fas fa-times"></i> Cancel
+                                 </button>
+                             </div>
+                         </div>
                         
                         <div class="html-form-content">
                             {% if document.filled_html_url %}
@@ -182,14 +214,47 @@
                 {% if document %}
                     <div class="message bot">
                         <div class="message-content">
-                            Great! I've analyzed your document "{{ document.filename }}" and found {{ document.total_blanks }} blank spaces that need to be filled. I can help you fill them out. What information would you like to provide?
+                            <strong>🎉 Document Loaded Successfully!</strong><br><br>
+                            📄 <strong>{{ document.filename }}</strong><br>
+                            📝 Found <strong>{{ document.total_blanks }} fillable fields</strong><br><br>
+                            
+                            💡 <strong>Quick Actions:</strong><br>
+                            • Click "AI Fill" to auto-fill all fields<br>
+                            • Edit any field manually<br>
+                            • Generate PDF when ready<br><br>
+                            
+                            Ask me anything! I can help with:
+                            <ul style="margin: 10px 0 0 20px; padding: 0;">
+                                <li>Understanding what each field needs</li>
+                                <li>Providing suggestions for specific fields</li>
+                                <li>Explaining document sections</li>
+                                <li>Answering questions about your document</li>
+                            </ul>
                         </div>
                         <div class="message-time">{{ now|date:"H:i" }}</div>
                     </div>
                 {% else %}
                     <div class="message bot">
                         <div class="message-content">
-                            Welcome! I'm your AI assistant. Upload a document to get started, or ask me any questions about document processing.
+                            <strong>👋 Welcome to AI PDF Autofill Assistant!</strong><br><br>
+                            
+                            I'm your intelligent document assistant, powered by AI. Here's what I can do for you:<br><br>
+                            
+                            ✨ <strong>Smart Features:</strong><br>
+                            • 🤖 Automatically fill forms with AI<br>
+                            • 📝 Understand document context<br>
+                            • 💬 Answer your questions in real-time<br>
+                            • 🎯 Suggest appropriate field values<br><br>
+                            
+                            <strong>Get Started:</strong><br>
+                            1. Upload a PDF document above<br>
+                            2. I'll detect all fillable fields<br>
+                            3. Click "AI Fill" or chat with me for help!<br><br>
+                            
+                            💡 <strong>Tip:</strong> You can ask me things like:<br>
+                            • "Fill the name field with John Smith"<br>
+                            • "What does this document need?"<br>
+                            • "Suggest a value for the email field"
                         </div>
                         <div class="message-time">{{ now|date:"H:i" }}</div>
                     </div>
@@ -197,6 +262,25 @@
             </div>
 
             <div class="chat-input">
+                <!-- Quick Action Suggestions -->
+                <div class="quick-actions" style="padding: 10px; border-top: 1px solid #eee; background: #f8f9fa;">
+                    <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">💡 Quick suggestions:</div>
+                    <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                        <button class="quick-action-btn" onclick="document.getElementById('chatInput').value='What fields need to be filled?'; document.getElementById('sendBtn').click();" 
+                                style="padding: 5px 10px; font-size: 0.8em; border: 1px solid #007bff; background: white; color: #007bff; border-radius: 15px; cursor: pointer;">
+                            What fields need filling?
+                        </button>
+                        <button class="quick-action-btn" onclick="document.getElementById('chatInput').value='Explain this document'; document.getElementById('sendBtn').click();" 
+                                style="padding: 5px 10px; font-size: 0.8em; border: 1px solid #007bff; background: white; color: #007bff; border-radius: 15px; cursor: pointer;">
+                            Explain document
+                        </button>
+                        <button class="quick-action-btn" onclick="document.getElementById('chatInput').value='Help me fill out the employee information section'; document.getElementById('sendBtn').click();" 
+                                style="padding: 5px 10px; font-size: 0.8em; border: 1px solid #007bff; background: white; color: #007bff; border-radius: 15px; cursor: pointer;">
+                            Help with sections
+                        </button>
+                    </div>
+                </div>
+                
                 <div class="input-group">
                     <input type="text" class="chat-input-field" id="chatInput"
                            placeholder="Ask me anything about your document...">

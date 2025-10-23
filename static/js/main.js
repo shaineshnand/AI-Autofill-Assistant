@@ -824,14 +824,9 @@ document.addEventListener('DOMContentLoaded', function() {
         chatInput.disabled = false;
         sendBtn.disabled = false;
         
-        // Add welcome message if chat is empty
-        if (chatMessages && chatMessages.children.length === 0) {
-            if (documentId) {
-                addMessage("Hello! I can see you have a document loaded. I can help you fill out the form fields. Try asking me about the fields or what information you need to provide!", 'bot');
-            } else {
-                addMessage("Hello! I'm your AI assistant. Upload a document and I can help you fill it out. Ask me anything!", 'bot');
-            }
-        }
+        // Add welcome message if chat is empty (handled by template now)
+        // Enhanced chat is always ready
+        console.log('Chat ready - Ollama status will be checked on first message');
     }
 
     // Field update functionality
@@ -927,6 +922,23 @@ document.addEventListener('DOMContentLoaded', function() {
         addMessage(message, 'user');
         chatInput.value = '';
         sendBtn.disabled = true;
+        
+        // Show typing indicator
+        const typingIndicator = document.createElement('div');
+        typingIndicator.className = 'message bot typing-indicator';
+        typingIndicator.id = 'typingIndicator';
+        typingIndicator.innerHTML = `
+            <div class="message-content">
+                <i class="fas fa-robot"></i> AI is thinking
+                <span class="dots">
+                    <span>.</span><span>.</span><span>.</span>
+                </span>
+            </div>
+        `;
+        if (chatMessages) {
+            chatMessages.appendChild(typingIndicator);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
 
         try {
             let url = documentId ? `/api/chat/${documentId}/` : '/api/chat/general/';
@@ -943,6 +955,12 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('Response status:', response.status);
             const data = await response.json();
             console.log('Response data:', data);
+            
+            // Remove typing indicator
+            const typingIndicator = document.getElementById('typingIndicator');
+            if (typingIndicator) {
+                typingIndicator.remove();
+            }
             
             if (data.success) {
                 addMessage(data.response, 'bot');
@@ -968,6 +986,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } catch (error) {
             console.error('Chat error:', error);
+            
+            // Remove typing indicator
+            const typingIndicator = document.getElementById('typingIndicator');
+            if (typingIndicator) {
+                typingIndicator.remove();
+            }
+            
             addMessage('Sorry, I encountered an error. Please try again. Error: ' + error.message, 'bot');
         } finally {
             sendBtn.disabled = false;
@@ -1202,24 +1227,792 @@ document.addEventListener('DOMContentLoaded', function() {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${type}`;
         
+        // Add animation
+        messageDiv.style.animation = 'fadeIn 0.3s ease-in';
+        
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
-        contentDiv.textContent = content;
+        
+        // Support HTML content for bot messages (for rich formatting)
+        if (type === 'bot') {
+            contentDiv.innerHTML = content;
+        } else {
+            contentDiv.textContent = content;
+        }
         
         const timeDiv = document.createElement('div');
         timeDiv.className = 'message-time';
-        timeDiv.textContent = new Date().toLocaleTimeString();
+        timeDiv.textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
         
         messageDiv.appendChild(contentDiv);
         messageDiv.appendChild(timeDiv);
         
         if (chatMessages) {
             chatMessages.appendChild(messageDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            // Smooth scroll to bottom
+            chatMessages.scrollTo({
+                top: chatMessages.scrollHeight,
+                behavior: 'smooth'
+            });
         } else {
             console.error('chatMessages element not found!');
         }
     }
+    
+    // Add Custom Field functionality
+    console.log('🔍 DEBUG: Initializing Add Custom Field functionality...');
+    console.log('🔍 DEBUG: Document ready state:', document.readyState);
+    
+    // Check if we're on the right page
+    const isIndexPage = window.location.pathname === '/' || window.location.pathname.includes('index');
+    console.log('🔍 DEBUG: Is index page:', isIndexPage);
+    
+    // Field counter
+    let fieldCounter = 0;
+    
+    // Edit mode state
+    let editModeActive = false;
+    
+    // Drag operation state
+    let isDragOperation = false;
+    
+    // Wait for DOM to be fully loaded
+    if (document.readyState === 'loading') {
+        console.log('🔍 DEBUG: DOM still loading, waiting...');
+        document.addEventListener('DOMContentLoaded', initializeAddCustomField);
+    } else {
+        console.log('🔍 DEBUG: DOM already loaded, initializing immediately');
+        initializeAddCustomField();
+    }
+    
+    function initializeAddCustomField() {
+        console.log('🔍 DEBUG: initializeAddCustomField called');
+        
+        // Check if document is loaded first
+        const documentLoaded = document.getElementById('documentLoaded');
+        console.log('🔍 DEBUG: documentLoaded element found:', !!documentLoaded);
+        
+        const addCustomFieldBtn = document.getElementById('addCustomFieldBtn');
+        const cancelAddFieldBtn = document.getElementById('cancelAddFieldBtn');
+        
+        console.log('🔍 DEBUG: addCustomFieldBtn found:', !!addCustomFieldBtn);
+        console.log('🔍 DEBUG: cancelAddFieldBtn found:', !!cancelAddFieldBtn);
+        
+        // Check all elements with "add" in their ID
+        const allElements = document.querySelectorAll('[id*="add"]');
+        console.log('🔍 DEBUG: All elements with "add" in ID:', Array.from(allElements).map(el => el.id));
+        
+        // Check if the form header exists
+        const formHeader = document.querySelector('.form-header');
+        console.log('🔍 DEBUG: form-header found:', !!formHeader);
+        if (formHeader) {
+            console.log('🔍 DEBUG: form-header HTML:', formHeader.innerHTML);
+        }
+        
+        // Also check if the button is visible
+        if (addCustomFieldBtn) {
+            console.log('🔍 DEBUG: Button text:', addCustomFieldBtn.textContent);
+            console.log('🔍 DEBUG: Button style display:', window.getComputedStyle(addCustomFieldBtn).display);
+            console.log('🔍 DEBUG: Button style visibility:', window.getComputedStyle(addCustomFieldBtn).visibility);
+            
+            // Add a temporary visual indicator to confirm button is found
+            addCustomFieldBtn.style.border = '2px solid red';
+            setTimeout(() => {
+                if (addCustomFieldBtn) {
+                    addCustomFieldBtn.style.border = '';
+                }
+            }, 3000);
+        }
+        
+        if (addCustomFieldBtn) {
+            console.log('🔍 DEBUG: Adding click event listener to addCustomFieldBtn');
+            addCustomFieldBtn.addEventListener('click', function(e) {
+                console.log('🔍 DEBUG: Add Custom Field button clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
+                enableAddFieldMode();
+            });
+        } else {
+            console.error('❌ DEBUG: addCustomFieldBtn not found! Check if button exists in HTML');
+        }
+        
+        if (cancelAddFieldBtn) {
+            console.log('🔍 DEBUG: Adding click event listener to cancelAddFieldBtn');
+            cancelAddFieldBtn.addEventListener('click', function(e) {
+                console.log('🔍 DEBUG: Cancel Add Field button clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
+                disableAddFieldMode();
+            });
+        } else {
+            console.log('🔍 DEBUG: cancelAddFieldBtn not found (this is normal if not in add mode)');
+        }
+        
+        // Add event listener for Delete All Fields button
+        const deleteAllFieldsBtn = document.getElementById('deleteAllFieldsBtn');
+        if (deleteAllFieldsBtn) {
+            console.log('🔍 DEBUG: Adding click event listener to deleteAllFieldsBtn');
+            deleteAllFieldsBtn.addEventListener('click', function(e) {
+                console.log('🔍 DEBUG: Delete All Fields button clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
+                deleteAllCustomFields();
+            });
+        } else {
+            console.log('🔍 DEBUG: deleteAllFieldsBtn not found');
+        }
+        
+        // Add event listener for Edit Mode button
+        const editModeBtn = document.getElementById('editModeBtn');
+        if (editModeBtn) {
+            console.log('🔍 DEBUG: Adding click event listener to editModeBtn');
+            editModeBtn.addEventListener('click', function(e) {
+                console.log('🔍 DEBUG: Edit Mode button clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
+                toggleEditMode();
+            });
+        } else {
+            console.log('🔍 DEBUG: editModeBtn not found');
+        }
+        
+        // Fallback: Check again after a delay in case elements are loaded dynamically
+        setTimeout(() => {
+            console.log('🔍 DEBUG: Fallback check - looking for button again...');
+            const delayedBtn = document.getElementById('addCustomFieldBtn');
+            if (delayedBtn && !addCustomFieldBtn) {
+                console.log('🔍 DEBUG: Button found in delayed check! Adding event listener...');
+                delayedBtn.addEventListener('click', function(e) {
+                    console.log('🔍 DEBUG: Add Custom Field button clicked (delayed)!', e);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    enableAddFieldMode();
+                });
+            }
+        }, 2000);
+        
+        // Watch for dynamic content changes
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType === 1) { // Element node
+                            const newBtn = node.id === 'addCustomFieldBtn' ? node : node.querySelector('#addCustomFieldBtn');
+                            if (newBtn) {
+                                console.log('🔍 DEBUG: Button detected via MutationObserver!', newBtn);
+                                newBtn.addEventListener('click', function(e) {
+                                    console.log('🔍 DEBUG: Add Custom Field button clicked (observer)!', e);
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    enableAddFieldMode();
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+        });
+        
+        // Start observing
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+        
+        console.log('🔍 DEBUG: MutationObserver started to watch for button');
+        
+        // Also add a global function to manually check for the button
+        window.checkForAddCustomFieldButton = function() {
+            console.log('🔍 DEBUG: Manual check for Add Custom Field button...');
+            const btn = document.getElementById('addCustomFieldBtn');
+            if (btn) {
+                console.log('🔍 DEBUG: Button found in manual check!', btn);
+                btn.addEventListener('click', function(e) {
+                    console.log('🔍 DEBUG: Add Custom Field button clicked (manual)!', e);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    enableAddFieldMode();
+                });
+                return true;
+            } else {
+                console.log('🔍 DEBUG: Button still not found in manual check');
+                return false;
+            }
+        };
+        
+        console.log('🔍 DEBUG: Manual check function available as window.checkForAddCustomFieldButton()');
+    }
+    
+    function toggleEditMode() {
+        console.log('🔍 DEBUG: toggleEditMode called, current state:', editModeActive);
+        
+        editModeActive = !editModeActive;
+        const editModeBtn = document.getElementById('editModeBtn');
+        const editModeButtons = document.getElementById('editModeButtons');
+        
+        if (editModeActive) {
+            // Activate edit mode
+            console.log('🔍 DEBUG: Activating edit mode');
+            editModeBtn.innerHTML = '<i class="fas fa-times-circle"></i> Exit Edit Mode';
+            editModeBtn.style.background = 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)';
+            
+            if (editModeButtons) {
+                editModeButtons.style.display = 'flex';
+            }
+            
+            // Show delete buttons on existing fields
+            showDeleteButtonsOnFields();
+            
+            addMessage('✏️ <strong>Edit Mode Activated!</strong><br>You can now add and delete custom fields.', 'bot');
+        } else {
+            // Deactivate edit mode
+            console.log('🔍 DEBUG: Deactivating edit mode');
+            editModeBtn.innerHTML = '<i class="fas fa-edit"></i> Edit Mode';
+            editModeBtn.style.background = 'linear-gradient(135deg, #28a745 0%, #20c997 100%)';
+            
+            if (editModeButtons) {
+                editModeButtons.style.display = 'none';
+            }
+            
+            // Hide delete buttons on existing fields
+            hideDeleteButtonsOnFields();
+            
+            // Exit add field mode if active
+            if (document.getElementById('addFieldInstructions').style.display !== 'none') {
+                disableAddFieldMode();
+            }
+            
+            addMessage('✅ <strong>Edit Mode Deactivated!</strong><br>Back to normal view mode.', 'bot');
+        }
+    }
+    
+    function showDeleteButtonsOnFields() {
+        console.log('🔍 DEBUG: Showing delete buttons and enabling drag on existing fields');
+        try {
+            const iframe = document.getElementById('htmlFormIframe');
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            
+            const deleteButtons = iframeDoc.querySelectorAll('[id^="delete_btn_"]');
+            deleteButtons.forEach(btn => {
+                btn.style.display = 'block';
+            });
+            
+            const dragHandles = iframeDoc.querySelectorAll('[id^="drag_handle_"]');
+            dragHandles.forEach(handle => {
+                handle.style.cursor = 'move';
+                handle.title = 'Drag to move';
+            });
+        } catch (error) {
+            console.error('Error showing delete buttons:', error);
+        }
+    }
+    
+    function hideDeleteButtonsOnFields() {
+        console.log('🔍 DEBUG: Hiding delete buttons and disabling drag on existing fields');
+        try {
+            const iframe = document.getElementById('htmlFormIframe');
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            
+            const deleteButtons = iframeDoc.querySelectorAll('[id^="delete_btn_"]');
+            deleteButtons.forEach(btn => {
+                btn.style.display = 'none';
+            });
+            
+            const dragHandles = iframeDoc.querySelectorAll('[id^="drag_handle_"]');
+            dragHandles.forEach(handle => {
+                handle.style.cursor = 'default';
+                handle.title = 'Edit mode required to move';
+            });
+        } catch (error) {
+            console.error('Error hiding delete buttons:', error);
+        }
+    }
+    
+    function enableAddFieldMode() {
+        console.log('🔍 DEBUG: enableAddFieldMode() called');
+        
+        // Check if edit mode is active
+        if (!editModeActive) {
+            console.log('🔍 DEBUG: Edit mode not active, cannot enable add field mode');
+            addMessage('⚠️ <strong>Edit Mode Required!</strong><br>Please activate Edit Mode first to add custom fields.', 'bot');
+            return;
+        }
+        
+        const instructions = document.getElementById('addFieldInstructions');
+        const addFieldBtn = document.getElementById('addCustomFieldBtn');
+        const iframe = document.getElementById('htmlFormIframe');
+        
+        console.log('🔍 DEBUG: instructions element found:', !!instructions);
+        console.log('🔍 DEBUG: addFieldBtn element found:', !!addFieldBtn);
+        console.log('🔍 DEBUG: iframe element found:', !!iframe);
+        
+        if (instructions) {
+            console.log('🔍 DEBUG: Showing instructions banner');
+            instructions.style.display = 'block';
+        } else {
+            console.error('❌ DEBUG: instructions element not found!');
+        }
+        
+        if (addFieldBtn) {
+            console.log('🔍 DEBUG: Updating button to active state');
+            addFieldBtn.innerHTML = '<i class="fas fa-times-circle"></i> Exit Mode';
+            addFieldBtn.style.background = '#dc3545';
+            addFieldBtn.disabled = false;
+            addFieldBtn.onclick = function() {
+                disableAddFieldMode();
+            };
+        } else {
+            console.error('❌ DEBUG: addFieldBtn element not found!');
+        }
+        
+        if (iframe) {
+            console.log('🔍 DEBUG: Updating iframe styling');
+            iframe.style.border = '3px solid #667eea';
+            iframe.style.cursor = 'crosshair';
+            iframe.style.boxShadow = '0 0 20px rgba(102, 126, 234, 0.5)';
+            
+            // Add click event to iframe content
+            try {
+                console.log('🔍 DEBUG: Attempting to access iframe content');
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                console.log('🔍 DEBUG: iframeDoc found:', !!iframeDoc);
+                if (iframeDoc) {
+                    iframeDoc.addEventListener('click', handleIframeClick);
+                    console.log('🔍 DEBUG: Click event listener added to iframe');
+                }
+            } catch(e) {
+                console.error('❌ DEBUG: Could not access iframe:', e);
+            }
+        } else {
+            console.error('❌ DEBUG: iframe element not found!');
+        }
+        
+        console.log('🔍 DEBUG: Sending chat message');
+        addMessage('✨ <strong>Add Field Mode Activated!</strong><br>Click anywhere in the document to create an editable field at that exact location!', 'bot');
+        console.log('🔍 DEBUG: enableAddFieldMode() completed');
+    }
+    
+    function disableAddFieldMode() {
+        const instructions = document.getElementById('addFieldInstructions');
+        const addFieldBtn = document.getElementById('addCustomFieldBtn');
+        const iframe = document.getElementById('htmlFormIframe');
+        
+        if (instructions) {
+            instructions.style.display = 'none';
+        }
+        
+        if (addFieldBtn) {
+            addFieldBtn.innerHTML = '<i class="fas fa-plus-circle"></i> Add Custom Field';
+            addFieldBtn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+            addFieldBtn.disabled = false;
+        }
+        
+        if (iframe) {
+            iframe.style.border = '2px solid #ddd';
+            iframe.style.cursor = 'default';
+            iframe.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.1)';
+            
+            // Remove click event from iframe
+            try {
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                iframeDoc.removeEventListener('click', handleIframeClick);
+            } catch(e) {
+                console.error('Could not access iframe:', e);
+            }
+        }
+    }
+    
+    function handleIframeClick(event) {
+        console.log('🔍 DEBUG: handleIframeClick called', event);
+        console.log('🔍 DEBUG: Event target:', event.target);
+        console.log('🔍 DEBUG: Event type:', event.type);
+        console.log('🔍 DEBUG: isDragOperation:', isDragOperation);
+        
+        // Check if we're in the middle of a drag operation
+        if (isDragOperation) {
+            console.log('🔍 DEBUG: Drag operation in progress, ignoring click');
+            return;
+        }
+        
+        // Check if clicked on an existing custom field or any of its children
+        const clickedElement = event.target;
+        const isCustomField = clickedElement.closest('[id^="field_container_custom_field_"]');
+        const isDragHandle = clickedElement.id && clickedElement.id.startsWith('drag_handle_');
+        const isDeleteButton = clickedElement.id && clickedElement.id.startsWith('delete_btn_');
+        const isFieldInput = clickedElement.id && clickedElement.id.startsWith('custom_field_');
+        
+        // Additional check for drag handle clicks specifically
+        if (clickedElement.id && clickedElement.id.includes('drag_handle_custom_field_')) {
+            console.log('🔍 DEBUG: Clicked on drag handle, ignoring');
+            return;
+        }
+        
+        if (isCustomField || isDragHandle || isDeleteButton || isFieldInput) {
+            console.log('🔍 DEBUG: Clicked on existing custom field or its components, ignoring');
+            console.log('🔍 DEBUG: isCustomField:', isCustomField, 'isDragHandle:', isDragHandle, 'isDeleteButton:', isDeleteButton, 'isFieldInput:', isFieldInput);
+            return;
+        }
+        
+        event.preventDefault();
+        event.stopPropagation();
+        
+        // Get the iframe and its position
+        const iframe = document.getElementById('htmlFormIframe');
+        console.log('🔍 DEBUG: iframe element:', iframe);
+        
+        if (!iframe) {
+            console.error('❌ DEBUG: iframe not found in handleIframeClick!');
+            return;
+        }
+        
+        const iframeRect = iframe.getBoundingClientRect();
+        
+        // Calculate relative position within the iframe
+        const relativeX = event.clientX - iframeRect.left;
+        const relativeY = event.clientY - iframeRect.top;
+        
+        console.log('🔍 DEBUG: Click position:', { relativeX, relativeY });
+        console.log('🔍 DEBUG: Client position:', { clientX: event.clientX, clientY: event.clientY });
+        console.log('🔍 DEBUG: Iframe rect:', iframeRect);
+        
+        // Check if coordinates are valid
+        if (relativeX < 0 || relativeY < 0 || relativeX > iframeRect.width || relativeY > iframeRect.height) {
+            console.warn('⚠️ DEBUG: Click coordinates outside iframe bounds!');
+            console.log('🔍 DEBUG: Coordinates check:', {
+                relativeX, relativeY, 
+                iframeWidth: iframeRect.width, 
+                iframeHeight: iframeRect.height
+            });
+        }
+        
+        // Create field immediately at click position
+        createFieldAtPosition(relativeX, relativeY);
+    }
+    
+    function createFieldAtPosition(x, y) {
+        fieldCounter++;
+        console.log('🔍 DEBUG: createFieldAtPosition called with:', { x, y });
+        console.log('🔍 DEBUG: Field attempt #', fieldCounter);
+        
+        try {
+            const iframe = document.getElementById('htmlFormIframe');
+            console.log('🔍 DEBUG: iframe found:', !!iframe);
+            
+            if (!iframe) {
+                console.error('❌ DEBUG: iframe not found!');
+                addMessage('❌ <strong>Error:</strong> Document iframe not found.', 'bot');
+                return;
+            }
+            
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            console.log('🔍 DEBUG: iframeDoc found:', !!iframeDoc);
+            
+            if (!iframeDoc) {
+                console.error('❌ DEBUG: iframeDoc not found!');
+                addMessage('❌ <strong>Error:</strong> Cannot access document content.', 'bot');
+                return;
+            }
+            
+            // Create a simple editable field with delete button and drag handle
+            const fieldId = `custom_field_${Date.now()}`;
+            const fieldHTML = `
+                <div id="field_container_${fieldId}" style="position: absolute; left: ${x}px; top: ${y}px; z-index: 1000; background: white; border: 2px solid #667eea; border-radius: 4px; padding: 5px; min-width: 150px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); user-select: none;">
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <div id="drag_handle_${fieldId}" style="font-size: 10px; color: #667eea; cursor: ${editModeActive ? 'move' : 'default'}; flex: 1;" title="${editModeActive ? 'Drag to move' : 'Edit mode required to move'}">📍 (${x}, ${y})</div>
+                        <button id="delete_btn_${fieldId}" 
+                                style="background: #dc3545; color: white; border: none; border-radius: 3px; padding: 2px 6px; font-size: 10px; cursor: pointer; display: ${editModeActive ? 'block' : 'none'};"
+                                title="Delete field">
+                            ✕
+                        </button>
+                    </div>
+                    <input type="text" 
+                           id="${fieldId}" 
+                           placeholder="Click to edit..." 
+                           style="border: none; background: transparent; width: 100%; font-size: 12px; outline: none; margin-top: 2px;"
+                           onfocus="this.style.background='#f0f8ff';"
+                           onblur="this.style.background='transparent';">
+                </div>
+            `;
+            
+            // Insert the field
+            const tempDiv = iframeDoc.createElement('div');
+            tempDiv.innerHTML = fieldHTML;
+            const fieldElement = tempDiv.firstElementChild;
+            
+            console.log('🔍 DEBUG: fieldElement created:', !!fieldElement);
+            console.log('🔍 DEBUG: iframeDoc.body found:', !!iframeDoc.body);
+            
+            // Add to document body for absolute positioning
+            if (iframeDoc.body) {
+                iframeDoc.body.appendChild(fieldElement);
+                console.log('🔍 DEBUG: Field appended to body');
+            } else {
+                console.error('❌ DEBUG: iframeDoc.body not found!');
+                addMessage('❌ <strong>Error:</strong> Cannot find document body.', 'bot');
+                return;
+            }
+            
+            // Verify field was added
+            const addedField = iframeDoc.getElementById(`field_container_${fieldId}`);
+            console.log('🔍 DEBUG: Field verification:', !!addedField);
+            
+            if (!addedField) {
+                console.error('❌ DEBUG: Field was not added successfully!');
+                addMessage('❌ <strong>Error:</strong> Field was not added to document.', 'bot');
+                return;
+            }
+            
+            // Add event listener to delete button
+            const deleteBtn = iframeDoc.getElementById(`delete_btn_${fieldId}`);
+            if (deleteBtn) {
+                console.log('🔍 DEBUG: Adding delete button event listener');
+                deleteBtn.addEventListener('click', function(e) {
+                    console.log('🔍 DEBUG: Delete button clicked for field:', fieldId);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    deleteCustomField(fieldId);
+                });
+            } else {
+                console.error('❌ DEBUG: Delete button not found!');
+            }
+            
+            // Add drag functionality
+            const dragHandle = iframeDoc.getElementById(`drag_handle_${fieldId}`);
+            if (dragHandle) {
+                console.log('🔍 DEBUG: Adding drag functionality');
+                makeFieldDraggable(fieldElement, dragHandle, fieldId);
+            } else {
+                console.error('❌ DEBUG: Drag handle not found!');
+            }
+            
+            // Focus the field
+            setTimeout(() => {
+                const input = iframeDoc.getElementById(fieldId);
+                if (input) {
+                    input.focus();
+                    input.select();
+                    console.log('🔍 DEBUG: Field focused successfully');
+                } else {
+                    console.error('❌ DEBUG: Could not focus field input');
+                }
+            }, 100);
+            
+            console.log('🔍 DEBUG: Field created at position:', { x, y });
+            console.log('🔍 DEBUG: Field element:', fieldElement);
+            console.log('🔍 DEBUG: Field HTML:', fieldHTML);
+            
+            // Show success message
+            addMessage(`✅ <strong>Field #${fieldCounter} Added!</strong><br>Editable field created at position (${x}, ${y}).`, 'bot');
+            
+        } catch (error) {
+            console.error('Error creating field:', error);
+            addMessage('❌ <strong>Error:</strong> Could not create field. ' + error.message, 'bot');
+        }
+    }
+    
+    function makeFieldDraggable(fieldElement, dragHandle, fieldId) {
+        console.log('🔍 DEBUG: makeFieldDraggable called for:', fieldId);
+        
+        let isDragging = false;
+        let startX, startY, initialX, initialY;
+        
+        dragHandle.addEventListener('mousedown', function(e) {
+            // Only allow dragging in edit mode
+            if (!editModeActive) {
+                console.log('🔍 DEBUG: Drag blocked - edit mode not active');
+                return;
+            }
+            
+            console.log('🔍 DEBUG: Drag started for field:', fieldId);
+            isDragging = true;
+            isDragOperation = true; // Set global drag flag
+            
+            // Clear drag flag after a timeout as safety measure
+            setTimeout(() => {
+                if (isDragOperation) {
+                    console.log('🔍 DEBUG: Clearing drag flag after timeout');
+                    isDragOperation = false;
+                }
+            }, 1000);
+            
+            // Get initial positions
+            startX = e.clientX;
+            startY = e.clientY;
+            initialX = parseInt(fieldElement.style.left) || 0;
+            initialY = parseInt(fieldElement.style.top) || 0;
+            
+            // Add dragging styles
+            fieldElement.style.cursor = 'grabbing';
+            fieldElement.style.zIndex = '2000';
+            fieldElement.style.opacity = '0.8';
+            fieldElement.style.transform = 'rotate(2deg)';
+            
+            // Prevent text selection and event bubbling
+            e.preventDefault();
+            e.stopPropagation();
+        });
+        
+        // Add global mouse move and up listeners to the iframe document
+        const iframe = document.getElementById('htmlFormIframe');
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+        
+        iframeDoc.addEventListener('mousemove', function(e) {
+            if (!isDragging) return;
+            
+            // Calculate new position
+            const deltaX = e.clientX - startX;
+            const deltaY = e.clientY - startY;
+            const newX = initialX + deltaX;
+            const newY = initialY + deltaY;
+            
+            // Update position
+            fieldElement.style.left = newX + 'px';
+            fieldElement.style.top = newY + 'px';
+            
+            // Update coordinates display
+            const coordDisplay = dragHandle;
+            coordDisplay.textContent = `📍 (${newX}, ${newY})`;
+        });
+        
+        iframeDoc.addEventListener('mouseup', function(e) {
+            if (!isDragging) return;
+            
+            console.log('🔍 DEBUG: Drag ended for field:', fieldId);
+            isDragging = false;
+            
+            // Remove dragging styles
+            fieldElement.style.cursor = '';
+            fieldElement.style.zIndex = '1000';
+            fieldElement.style.opacity = '1';
+            fieldElement.style.transform = '';
+            
+            // Get final position
+            const finalX = parseInt(fieldElement.style.left) || 0;
+            const finalY = parseInt(fieldElement.style.top) || 0;
+            
+            console.log('🔍 DEBUG: Field moved to position:', { x: finalX, y: finalY });
+            addMessage(`🔄 <strong>Field Moved!</strong><br>Custom field repositioned to (${finalX}, ${finalY}).`, 'bot');
+            
+            // Clear drag flag after a short delay to prevent click events
+            setTimeout(() => {
+                isDragOperation = false;
+                console.log('🔍 DEBUG: Drag operation flag cleared after delay');
+            }, 100);
+        });
+        
+        // Prevent dragging when clicking on input field
+        const inputField = iframeDoc.getElementById(fieldId);
+        if (inputField) {
+            inputField.addEventListener('mousedown', function(e) {
+                e.stopPropagation();
+            });
+        }
+        
+        // Prevent field container clicks from triggering add field mode
+        fieldElement.addEventListener('mousedown', function(e) {
+            console.log('🔍 DEBUG: Field container clicked, preventing event bubbling');
+            e.stopPropagation();
+        });
+        
+        fieldElement.addEventListener('click', function(e) {
+            console.log('🔍 DEBUG: Field container clicked, preventing event bubbling');
+            e.stopPropagation();
+        });
+        
+        // Prevent drag handle clicks from triggering add field mode
+        dragHandle.addEventListener('click', function(e) {
+            console.log('🔍 DEBUG: Drag handle clicked, preventing event bubbling');
+            e.preventDefault();
+            e.stopPropagation();
+        });
+        
+        dragHandle.addEventListener('mousedown', function(e) {
+            console.log('🔍 DEBUG: Drag handle mousedown, preventing event bubbling');
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    }
+    
+    // Delete custom field function
+    window.deleteCustomField = function(fieldId) {
+        console.log('🔍 DEBUG: deleteCustomField called for:', fieldId);
+        
+        try {
+            const iframe = document.getElementById('htmlFormIframe');
+            console.log('🔍 DEBUG: iframe found for delete:', !!iframe);
+            
+            if (!iframe) {
+                console.error('❌ DEBUG: iframe not found for delete!');
+                addMessage('❌ <strong>Error:</strong> Document iframe not found.', 'bot');
+                return;
+            }
+            
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            console.log('🔍 DEBUG: iframeDoc found for delete:', !!iframeDoc);
+            
+            if (!iframeDoc) {
+                console.error('❌ DEBUG: iframeDoc not found for delete!');
+                addMessage('❌ <strong>Error:</strong> Cannot access document content.', 'bot');
+                return;
+            }
+            
+            // Find and remove the field container
+            const fieldContainer = iframeDoc.getElementById(`field_container_${fieldId}`);
+            console.log('🔍 DEBUG: fieldContainer found:', !!fieldContainer);
+            console.log('🔍 DEBUG: Looking for ID:', `field_container_${fieldId}`);
+            
+            if (fieldContainer) {
+                fieldContainer.remove();
+                console.log('🔍 DEBUG: Field deleted successfully');
+                addMessage(`🗑️ <strong>Field Deleted!</strong><br>Custom field has been removed.`, 'bot');
+            } else {
+                console.log('🔍 DEBUG: Field container not found');
+                console.log('🔍 DEBUG: Available elements with similar IDs:');
+                const allElements = iframeDoc.querySelectorAll('[id*="field_container"]');
+                allElements.forEach(el => console.log('🔍 DEBUG: Found element:', el.id));
+                addMessage('❌ <strong>Error:</strong> Field not found for deletion.', 'bot');
+            }
+        } catch (error) {
+            console.error('Error deleting field:', error);
+            addMessage('❌ <strong>Error:</strong> Could not delete field. ' + error.message, 'bot');
+        }
+    };
+    
+    // Delete all custom fields function
+    window.deleteAllCustomFields = function() {
+        console.log('🔍 DEBUG: deleteAllCustomFields called');
+        
+        if (!confirm('Are you sure you want to delete ALL custom fields? This cannot be undone.')) {
+            return;
+        }
+        
+        try {
+            const iframe = document.getElementById('htmlFormIframe');
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            
+            // Find all custom field containers
+            const fieldContainers = iframeDoc.querySelectorAll('[id^="field_container_custom_field_"]');
+            console.log('🔍 DEBUG: Found', fieldContainers.length, 'custom fields to delete');
+            
+            let deletedCount = 0;
+            fieldContainers.forEach(container => {
+                container.remove();
+                deletedCount++;
+            });
+            
+            if (deletedCount > 0) {
+                console.log('🔍 DEBUG: Deleted', deletedCount, 'custom fields');
+                addMessage(`🗑️ <strong>All Fields Deleted!</strong><br>Removed ${deletedCount} custom field(s).`, 'bot');
+            } else {
+                addMessage('ℹ️ <strong>No Fields Found</strong><br>No custom fields to delete.', 'bot');
+            }
+            
+        } catch (error) {
+            console.error('Error deleting all fields:', error);
+            addMessage('❌ <strong>Error:</strong> Could not delete fields. ' + error.message, 'bot');
+        }
+    };
+    
 
     function getCookie(name) {
         let cookieValue = null;

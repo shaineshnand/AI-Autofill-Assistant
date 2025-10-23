@@ -797,12 +797,14 @@ class HTMLPDFProcessor:
     <style>
         body {{
             font-family: 'Times New Roman', serif;
-            line-height: 1.4;
+            line-height: 1.1;
             margin: 0;
-            padding: 20px;
+            padding: 0;
             background-color: white;
             color: black;
-            font-size: 11pt;
+            font-size: 10pt;
+            -webkit-text-size-adjust: 100%;
+            text-rendering: optimizeLegibility;
         }}
         
         .document-container {{
@@ -810,23 +812,58 @@ class HTMLPDFProcessor:
             min-height: 297mm; /* A4 height */
             margin: 0 auto;
             background: white;
-            padding: 25mm;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            padding: 12mm;
             position: relative;
+            box-sizing: border-box;
         }}
         
         .page {{
-            margin-bottom: 40px;
+            margin-bottom: 0;
             position: relative;
-            font-size: 11pt;
-            line-height: 1.4;
+            font-size: 9pt;
+            line-height: 1.1;
+            page-break-after: auto;
         }}
         
         .text-content {{
             white-space: pre-line;
+            font-size: 9pt;
+            line-height: 1.1;
+            margin-bottom: 3px;
+            margin-top: 0;
+            word-spacing: normal;
+            letter-spacing: normal;
+        }}
+        
+        .document-header {{
+            text-align: center;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }}
+        
+        .document-title {{
             font-size: 11pt;
-            line-height: 1.4;
-            margin-bottom: 15px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }}
+        
+        .document-subtitle {{
+            font-size: 9pt;
+            font-weight: bold;
+            margin-bottom: 3px;
+        }}
+        
+        .section-heading {{
+            font-weight: bold;
+            margin-top: 10px;
+            margin-bottom: 5px;
+            font-size: 9pt;
+        }}
+        
+        .field-label {{
+            display: inline-block;
+            margin-right: 5px;
+            font-weight: normal;
         }}
         
         .input-line {{
@@ -834,31 +871,50 @@ class HTMLPDFProcessor:
             border-bottom: 1px solid #000;
             background: transparent;
             font-family: inherit;
-            font-size: 11pt;
-            padding: 0 3px;
-            margin: 0 2px;
-            min-width: 120px;
-            height: 18px;
-            line-height: 18px;
+            font-size: 9pt;
+            padding: 0 1px;
+            margin: 0 1px;
+            min-width: 80px;
+            height: 12px;
+            line-height: 12px;
             vertical-align: baseline;
             position: relative;
+            box-sizing: border-box;
+        }}
+        
+        .underscore-line {{
+            display: inline-block;
+            border-bottom: 1px solid #000;
+            background: transparent;
+            font-family: inherit;
+            font-size: 9pt;
+            padding: 0 1px;
+            margin: 0 1px;
+            min-width: 100px;
+            height: 12px;
+            line-height: 12px;
+            vertical-align: baseline;
+            position: relative;
+            box-sizing: border-box;
         }}
         
         /* Table styling */
         .pdf-table {{
             width: 100%;
             border-collapse: collapse;
-            margin: 15px 0;
-            font-size: 11pt;
+            margin: 4px 0;
+            font-size: 10pt;
             border: 1px solid #000;
+            table-layout: fixed;
         }}
         
         .table-cell {{
             border: 1px solid #000;
-            padding: 8px;
+            padding: 2px;
             vertical-align: top;
-            font-size: 11pt;
-            line-height: 1.4;
+            font-size: 10pt;
+            line-height: 1.1;
+            word-wrap: break-word;
         }}
         
         .table-input {{
@@ -867,23 +923,46 @@ class HTMLPDFProcessor:
             background: transparent;
             font-family: inherit;
             font-size: 11pt;
-            padding: 2px 4px;
+            padding: 1px 2px;
             outline: none;
             border-bottom: 1px solid #000;
+            line-height: 1.2;
+            box-sizing: border-box;
         }}
         
         .table-checkbox {{
-            width: 15px;
-            height: 15px;
+            width: 12px;
+            height: 12px;
             margin: 0;
+            vertical-align: middle;
+        }}
+        
+        /* Additional spacing fixes */
+        * {{
+            box-sizing: border-box;
+        }}
+        
+        p, div, span {{
+            margin: 0;
+            padding: 0;
         }}
         
         /* PDF-specific styling for better rendering */
         @media print {{
+            body {{
+                margin: 0 !important;
+                padding: 0 !important;
+            }}
+            
+            .document-container {{
+                padding: 8mm !important;
+                margin: 0 !important;
+            }}
+            
             .input-line {{
                 border-bottom: 1px solid #000 !important;
                 background: transparent !important;
-                padding: 0 3px !important;
+                padding: 0 2px !important;
                 margin: 0 2px !important;
                 height: 18px !important;
                 line-height: 18px !important;
@@ -929,25 +1008,30 @@ class HTMLPDFProcessor:
             border-bottom: 1px solid #000;
             background: transparent;
             font-family: inherit;
-            font-size: 11pt;
-            padding: 0 3px;
-            margin: 0 2px;
-            min-width: 120px;
-            height: 18px;
-            line-height: 18px;
+            font-size: 9pt;
+            padding: 0 1px;
+            margin: 0;
+            min-width: 80px;
+            height: 12px;
+            line-height: 12px;
             outline: none;
-            transition: all 0.2s ease;
+            color: #000;
+        }}
+        
+        .editable-field::placeholder {{
+            color: transparent;
         }}
         
         .editable-field:hover {{
-            border-bottom: 2px solid #007bff;
+            border-bottom: 1px solid #000;
             background-color: rgba(0, 123, 255, 0.05);
         }}
         
         .editable-field:focus {{
             border-bottom: 2px solid #007bff;
             background-color: rgba(0, 123, 255, 0.1);
-            box-shadow: 0 2px 4px rgba(0, 123, 255, 0.2);
+            box-shadow: 0 1px 2px rgba(0, 123, 255, 0.2);
+            color: #000;
         }}
         
         .form-field {{
@@ -1130,6 +1214,9 @@ class HTMLPDFProcessor:
         html_content = ""
         processed_field_ids = set()  # Track which fields we've already processed
         
+        # IMPORTANT: Global field counter that persists across all lines!
+        self._field_counter = {'underscore': 0, 'dotted': 0, 'bracket': 0, 'blank': 0}
+        
         # Process the text and embed fields naturally within the existing text structure
         lines = text.split('\n')
         
@@ -1137,6 +1224,30 @@ class HTMLPDFProcessor:
             if not line.strip():
                 html_content += '<br>\n'
                 continue
+            
+            # Detect centered headings and special formatting
+            line_stripped = line.strip()
+            is_centered = False
+            style_class = "text-content"
+            
+            # Check if it's a centered heading (company name, document title, etc.)
+            # But ONLY if it's a standalone heading line, not part of a paragraph
+            if "TELECOM (FIJI) LIMITED" in line_stripped and len(line_stripped) < 50:
+                is_centered = True
+                style_class = "document-title"
+            elif "EMPLOYMENT INDUCTION AGREEMENT" in line_stripped and len(line_stripped) < 50:
+                is_centered = True
+                style_class = "document-subtitle"
+            elif line_stripped.startswith("Level 5,") or "Edward Street" in line_stripped:
+                is_centered = True
+            elif line_stripped.startswith("Phone:") and "Email:" in line_stripped:
+                is_centered = True
+            elif line_stripped.startswith("Website:"):
+                is_centered = True
+            elif line_stripped.isupper() and len(line_stripped) < 80 and not line_stripped.startswith("THIS"):
+                # Short all-caps lines are likely section headings
+                # But exclude lines starting with "THIS" (like the opening sentence)
+                style_class = "section-heading"
             
             # Check if this line contains field indicators and embed fields naturally
             field_added = False
@@ -1148,7 +1259,13 @@ class HTMLPDFProcessor:
                 if self._should_embed_field_in_line(line, field):
                     # Embed the field naturally within the line
                     embedded_line = self._embed_field_in_line(line, field)
-                    html_content += f'<div class="text-content">{embedded_line}</div>\n'
+                    
+                    # Apply styling based on line type
+                    if is_centered:
+                        html_content += f'<div class="{style_class}" style="text-align: center;">{embedded_line}</div>\n'
+                    else:
+                        html_content += f'<div class="{style_class}">{embedded_line}</div>\n'
+                    
                     processed_field_ids.add(field.id)
                     field_added = True
                     break
@@ -1156,7 +1273,12 @@ class HTMLPDFProcessor:
             if not field_added:
                 # Check if this line contains visual field indicators that should be converted
                 converted_line = self._convert_visual_indicators_to_inputs(line, fields)
-                html_content += f'<div class="text-content">{converted_line}</div>\n'
+                
+                # Apply styling based on line type
+                if is_centered:
+                    html_content += f'<div class="{style_class}" style="text-align: center;">{converted_line}</div>\n'
+                else:
+                    html_content += f'<div class="{style_class}">{converted_line}</div>\n'
         
         # Add any remaining fields that weren't caught by the text processing
         for field in fields:
@@ -1183,53 +1305,70 @@ class HTMLPDFProcessor:
         """Convert visual field indicators in a line to input fields"""
         converted_line = line
         
+        # Use the global field counter (set in _convert_text_to_html_with_fields)
+        if not hasattr(self, '_field_counter'):
+            self._field_counter = {'underscore': 0, 'dotted': 0, 'bracket': 0, 'blank': 0}
+        
         # Replace underscore patterns with input fields
         underscore_patterns = [r'_{3,}', r'_{2,}\s*_{2,}', r'_{4,}']
         for pattern in underscore_patterns:
             matches = list(re.finditer(pattern, converted_line))
-            for i, match in enumerate(matches):
-                # Find a field for this pattern
-                field_id = f"underscore_{i}"
+            for match in matches:
+                # Find the next available underscore field using global counter
+                field_id = f"underscore_{self._field_counter['underscore']}"
                 field = next((f for f in fields if f.id == field_id), None)
+                
                 if field:
                     placeholder = field.placeholder
+                    field_name = field.name
                 else:
                     placeholder = "Enter value"
+                    field_name = field_id
                 
-                replacement = f'<input type="text" class="input-line" placeholder="{placeholder}" style="width: {len(match.group()) * 8}px; border-bottom: 1px solid #000; border-top: none; border-left: none; border-right: none; background: transparent;">'
+                # IMPORTANT: Include id and name attributes for AI filling to work!
+                replacement = f'<input type="text" class="editable-field" id="{field_id}" name="{field_name}" placeholder="{placeholder}" value="" style="width: {len(match.group()) * 8}px; border-bottom: 1px solid #000; border-top: none; border-left: none; border-right: none; background: transparent;">'
                 converted_line = converted_line.replace(match.group(), replacement, 1)
+                self._field_counter['underscore'] += 1
         
         # Replace dotted patterns with input fields
         dotted_patterns = [r'\.{3,}', r'\.{2,}\s*\.{2,}', r'\.{4,}']
         for pattern in dotted_patterns:
             matches = list(re.finditer(pattern, converted_line))
-            for i, match in enumerate(matches):
-                # Find a field for this pattern
-                field_id = f"dotted_{i}"
+            for match in matches:
+                # Find the next available dotted field using global counter
+                field_id = f"dotted_{self._field_counter['dotted']}"
                 field = next((f for f in fields if f.id == field_id), None)
+                
                 if field:
                     placeholder = field.placeholder
+                    field_name = field.name
                 else:
                     placeholder = "Enter value"
+                    field_name = field_id
                 
-                replacement = f'<input type="text" class="input-line" placeholder="{placeholder}" style="width: {len(match.group()) * 8}px; border-bottom: 1px dotted #000; border-top: none; border-left: none; border-right: none; background: transparent;">'
+                replacement = f'<input type="text" class="editable-field" id="{field_id}" name="{field_name}" placeholder="{placeholder}" value="" style="width: {len(match.group()) * 8}px; border-bottom: 1px dotted #000; border-top: none; border-left: none; border-right: none; background: transparent;">'
                 converted_line = converted_line.replace(match.group(), replacement, 1)
+                self._field_counter['dotted'] += 1
         
         # Replace bracket patterns with input fields
         bracket_patterns = [r'\(\s*\)', r'\(\s*\.{2,}\s*\)', r'\(\s*_{2,}\s*\)']
         for pattern in bracket_patterns:
             matches = list(re.finditer(pattern, converted_line))
-            for i, match in enumerate(matches):
-                # Find a field for this pattern
-                field_id = f"bracket_{i}"
+            for match in matches:
+                # Find the next available bracket field using global counter
+                field_id = f"bracket_{self._field_counter['bracket']}"
                 field = next((f for f in fields if f.id == field_id), None)
+                
                 if field:
                     placeholder = field.placeholder
+                    field_name = field.name
                 else:
                     placeholder = "Enter value"
+                    field_name = field_id
                 
-                replacement = f'<input type="text" class="input-line" placeholder="{placeholder}" style="width: 80px; border: 1px solid #000; background: transparent;">'
+                replacement = f'<input type="text" class="editable-field" id="{field_id}" name="{field_name}" placeholder="{placeholder}" value="" style="width: 80px; border: 1px solid #000; background: transparent;">'
                 converted_line = converted_line.replace(match.group(), replacement, 1)
+                self._field_counter['bracket'] += 1
         
         return converted_line
     
@@ -1382,43 +1521,44 @@ class HTMLPDFProcessor:
         # Replace the field indicator with an input field based on field type
         
         if field.id.startswith('dotted'):
-            # Replace dotted lines with input field
+            # Replace dotted lines with underscore display
             dotted_patterns = [r'\.{3,}', r'\.{2,}\s*\.{2,}', r'\.{4,}']
             for pattern in dotted_patterns:
                 if re.search(pattern, line):
-                    replacement = f'<input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}" style="width: {field.width}px;">'
+                    replacement = f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">____________________</span>'
                     return re.sub(pattern, replacement, line, count=1)
         
         elif field.id.startswith('underscore'):
-            # Replace underscore lines with input field
+            # Replace underscore lines with proper underscore display
             underscore_patterns = [r'_{3,}', r'_{2,}\s*_{2,}', r'_{4,}']
             for pattern in underscore_patterns:
                 if re.search(pattern, line):
-                    replacement = f'<input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}" style="width: {field.width}px;">'
+                    # Create a span with underscore styling instead of input field
+                    replacement = f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">____________________</span>'
                     return re.sub(pattern, replacement, line, count=1)
         
         elif field.id.startswith('dash'):
-            # Replace dash lines with input field
+            # Replace dash lines with underscore display
             dash_patterns = [r'-{3,}', r'-{2,}\s*-{2,}', r'-{4,}']
             for pattern in dash_patterns:
                 if re.search(pattern, line):
-                    replacement = f'<input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}" style="width: {field.width}px;">'
+                    replacement = f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">____________________</span>'
                     return re.sub(pattern, replacement, line, count=1)
         
         elif field.id.startswith('bracket'):
-            # Replace bracket patterns with input field
+            # Replace bracket patterns with underscore display
             bracket_patterns = [r'\(\s*\)', r'\(\s*\.{2,}\s*\)', r'\(\s*_{2,}\s*\)']
             for pattern in bracket_patterns:
                 if re.search(pattern, line):
-                    replacement = f'<input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}" style="width: {field.width}px;">'
+                    replacement = f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">____________________</span>'
                     return re.sub(pattern, replacement, line, count=1)
         
         elif field.id.startswith('blank'):
-            # Replace blank spaces with input field
+            # Replace blank spaces with underscore display
             blank_patterns = [r'\s{5,}', r'\t+']
             for pattern in blank_patterns:
                 if re.search(pattern, line):
-                    replacement = f'<input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}" style="width: {field.width}px;">'
+                    replacement = f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">____________________</span>'
                     return re.sub(pattern, replacement, line, count=1)
         
         # Handle colon-based patterns (legacy support)
@@ -1431,48 +1571,48 @@ class HTMLPDFProcessor:
                 
                 # If there's text after the colon, replace it with the field
                 if rest:
-                    return f'{label} <input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}">'
+                    return f'{label} <span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>'
                 else:
-                    return f'{label} <input type="text" class="input-line" id="{field.id}" name="{field.name}" placeholder="{field.placeholder}" value="{field.value}">'
+                    return f'{label} <span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>'
         
         # Handle specific contract patterns
         if 'employer' in line.lower() and 'hereinafter' in line.lower():
             # Replace the long line with a field
-            return line.replace('………………………………………………………', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            return line.replace('………………………………………………………', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
         elif 'employee' in line.lower() and 'hereinafter' in line.lower():
             # Replace the long line with a field
-            return line.replace('………………………………………………………', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            return line.replace('………………………………………………………', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
         elif 'salary' in line.lower() and 'nu.' in line.lower():
             # Replace the salary blank with a field
-            return line.replace('_______', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            return line.replace('_______', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
         elif 'capacity' in line.lower() and '__________' in line:
             # Replace the capacity blank with a field
-            return line.replace('__________', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            return line.replace('__________', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
         elif 'day' in line.lower() and 'month' in line.lower() and 'year' in line.lower():
             # Replace the date blanks with fields
-            line = line.replace('…..day……', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            line = line.replace('…..day……', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
             return line
         elif 'id no' in line.lower() and '………………' in line:
             # Replace the ID blank with a field
-            return line.replace('………………', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            return line.replace('………………', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
         elif 'contact no' in line.lower() and '………………' in line:
             # Replace the contact blank with a field
-            return line.replace('………………', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            return line.replace('………………', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
         elif 'name:' in line.lower() and '………………' in line:
             # Replace the name blank with a field
-            return line.replace('………………', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            return line.replace('………………', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
         elif 'at' in line.lower() and '………………………' in line:
             # Replace the location blank with a field
-            return line.replace('………………………', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            return line.replace('………………………', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
         elif 'responsible to' in line.lower() and '…………………………' in line:
             # Replace the responsibility blank with a field
-            return line.replace('…………………………', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            return line.replace('…………………………', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
         elif 'job responsibilities' in line.lower() and '________________' in line:
             # Replace the job responsibilities blank with a field
-            return line.replace('________________', f'<span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>')
+            return line.replace('________________', f'<span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>')
         
         # If no specific pattern, just add the field at the end
-        return f'{line} <span class="input-line" id="{field.id}" data-field-name="{field.name}"></span>'
+        return f'{line} <span class="underscore-line" id="{field.id}" data-field-name="{field.name}">_________________________</span>'
     
     def generate_ai_data(self, layout: DocumentLayout) -> Dict[str, str]:
         """Generate AI data for form fields"""
@@ -1523,17 +1663,18 @@ class HTMLPDFProcessor:
         return ai_data
     
     def _get_default_value(self, field_type: str) -> str:
-        """Get default value based on field type"""
-        defaults = {
-            'text': 'Sample Text',
-            'email': 'user@example.com',
-            'phone': '(555) 123-4567',
-            'date': '2024-01-01',
-            'number': '123',
-            'checkbox': 'checked',
-            'select': 'Option 1'
+        """Get default value based on field type - return underscore lines for form fields"""
+        # For form fields, return underscore lines instead of placeholder text
+        underscore_lengths = {
+            'text': '____________________',
+            'email': '____________________',
+            'phone': '____________________',
+            'date': '____________________',
+            'number': '____________________',
+            'checkbox': '☐',
+            'select': '____________________'
         }
-        return defaults.get(field_type, 'Sample Value')
+        return underscore_lengths.get(field_type, '_________________________')
     
     def fill_html_with_ai_data(self, html_content: str, ai_data: Dict[str, str]) -> str:
         """Fill HTML form fields with AI-generated data and make them editable"""
@@ -1557,15 +1698,25 @@ class HTMLPDFProcessor:
                 
                 filled_html = re.sub(editable_input_pattern, replace_editable_input, filled_html)
                 
-                # Then, handle input-line spans with the specific field_id
-                pattern = rf'(<span[^>]*class="input-line"[^>]*id="{re.escape(field_id)}"[^>]*data-field-name="([^"]*)"[^>]*>)([^<]*)(</span>)'
+                # Then, handle underscore-line spans with the specific field_id
+                pattern = rf'(<span[^>]*class="underscore-line"[^>]*id="{re.escape(field_id)}"[^>]*data-field-name="([^"]*)"[^>]*>)([^<]*)(</span>)'
                 
-                def replace_span(match):
+                def replace_underscore_span(match):
                     field_name = match.group(2)
-                    # Convert to editable input field
-                    return f'<input type="text" class="editable-field" id="{field_id}" name="{field_name}" value="{value}" style="display: inline-block; border: none; border-bottom: 1px solid #000; background: transparent; font-family: inherit; font-size: 11pt; padding: 0 3px; margin: 0 2px; min-width: 120px; height: 18px; line-height: 18px; outline: none;">'
+                    # Keep it as a span but replace the content with underscore lines
+                    return f'<span class="underscore-line" id="{field_id}" data-field-name="{field_name}">____________________</span>'
                 
-                filled_html = re.sub(pattern, replace_span, filled_html)
+                filled_html = re.sub(pattern, replace_underscore_span, filled_html)
+                
+                # Also handle input-line spans (legacy)
+                pattern2 = rf'(<span[^>]*class="input-line"[^>]*id="{re.escape(field_id)}"[^>]*data-field-name="([^"]*)"[^>]*>)([^<]*)(</span>)'
+                
+                def replace_input_span(match):
+                    field_name = match.group(2)
+                    # Keep it as a span but replace the content with underscore lines
+                    return f'<span class="underscore-line" id="{field_id}" data-field-name="{field_name}">____________________</span>'
+                
+                filled_html = re.sub(pattern2, replace_input_span, filled_html)
                 
                 # Also handle regular input fields for backward compatibility
                 input_pattern = rf'(<input[^>]*id="{re.escape(field_id)}"[^>]*?)(?:\s+value="[^"]*")?([^>]*>)'
@@ -1634,9 +1785,33 @@ class HTMLPDFProcessor:
             # Fallback to simple PDF creation
             self._html_to_pdf_simple(html_content, output_path)
     
+    def _html_to_pdf_simple(self, html_content: str, output_path: str):
+        """Simple fallback PDF creation method"""
+        try:
+            # Try to use WeasyPrint as a simple fallback
+            from weasyprint import HTML
+            HTML(string=html_content).write_pdf(output_path)
+            print(f"Successfully created PDF with WeasyPrint fallback: {output_path}")
+        except Exception as e:
+            print(f"Simple PDF creation also failed: {e}")
+            # Create a basic text file as last resort
+            text_path = output_path.replace('.pdf', '.txt')
+            with open(text_path, 'w', encoding='utf-8') as f:
+                f.write("PDF generation failed. HTML content:\n\n")
+                f.write(html_content)
+            print(f"Created text file instead: {text_path}")
+            raise Exception(f"All PDF generation methods failed. Last error: {e}")
+    
     def _optimize_html_for_pdf(self, html_content: str) -> str:
-        """Optimize HTML for better PDF rendering"""
+        """Optimize HTML for better PDF rendering with improved spacing"""
         import re
+        
+        # Remove extra whitespace and normalize spacing
+        html_content = re.sub(r'\s+', ' ', html_content)
+        html_content = re.sub(r'>\s+<', '><', html_content)
+        
+        # Fix line breaks in text content
+        html_content = re.sub(r'(\S)\n(\S)', r'\1 \2', html_content)
         
         # Replace editable input fields with PDF-friendly structure
         def replace_editable_field(match):
@@ -1644,9 +1819,9 @@ class HTMLPDFProcessor:
             field_name = match.group(2) if match.group(2) else ""
             value = match.group(3) if match.group(3) else ""
             
-            # Create a more robust structure for PDF
-            return f'''<span class="pdf-field-container" style="display: inline-block; position: relative; min-width: 120px; height: 18px; border-bottom: 1px solid #000; margin: 0 2px;">
-                <span class="pdf-field-text" style="position: absolute; top: 0; left: 3px; right: 3px; height: 18px; line-height: 18px; font-family: inherit; font-size: 11pt; background: transparent;">{value}</span>
+            # Create a more robust structure for PDF with better spacing
+            return f'''<span class="pdf-field-container" style="display: inline-block; position: relative; min-width: 100px; height: 16px; border-bottom: 1px solid #000; margin: 0 1px; padding: 0 2px; box-sizing: border-box;">
+                <span class="pdf-field-text" style="position: absolute; top: 0; left: 2px; right: 2px; height: 16px; line-height: 16px; font-family: inherit; font-size: 11pt; background: transparent; white-space: nowrap;">{value}</span>
             </span>'''
         
         # Pattern to match editable input fields
@@ -1659,9 +1834,9 @@ class HTMLPDFProcessor:
             field_name = match.group(2) if match.group(2) else ""
             content = match.group(3) if match.group(3) else ""
             
-            # Create a more robust structure for PDF
-            return f'''<span class="pdf-field-container" style="display: inline-block; position: relative; min-width: 120px; height: 18px; border-bottom: 1px solid #000; margin: 0 2px;">
-                <span class="pdf-field-text" style="position: absolute; top: 0; left: 3px; right: 3px; height: 18px; line-height: 18px; font-family: inherit; font-size: 11pt; background: transparent;">{content}</span>
+            # Create a more robust structure for PDF with better spacing
+            return f'''<span class="pdf-field-container" style="display: inline-block; position: relative; min-width: 100px; height: 16px; border-bottom: 1px solid #000; margin: 0 1px; padding: 0 2px; box-sizing: border-box;">
+                <span class="pdf-field-text" style="position: absolute; top: 0; left: 2px; right: 2px; height: 16px; line-height: 16px; font-family: inherit; font-size: 11pt; background: transparent; white-space: nowrap;">{content}</span>
             </span>'''
         
         # Pattern to match input-line spans with content
@@ -1722,22 +1897,23 @@ class HTMLPDFProcessor:
             
             options = {
                 'page-size': 'A4',
-                'margin-top': '0.75in',
-                'margin-right': '0.75in',
-                'margin-bottom': '0.75in',
-                'margin-left': '0.75in',
+                'margin-top': '0.2in',
+                'margin-right': '0.2in',
+                'margin-bottom': '0.2in',
+                'margin-left': '0.2in',
                 'encoding': "UTF-8",
                 'no-outline': None,
                 'enable-local-file-access': None,
                 'print-media-type': None,
                 'disable-smart-shrinking': None,
-                'dpi': 300,
-                'image-quality': 100,
                 'disable-external-links': None,
                 'disable-forms': None,
                 'disable-javascript': None,
                 'load-error-handling': 'ignore',
-                'load-media-error-handling': 'ignore'
+                'load-media-error-handling': 'ignore',
+                'zoom': 1.0,
+                'quiet': None,
+                'lowquality': None
             }
             
             pdfkit.from_string(html_content, output_path, options=options, configuration=config)
