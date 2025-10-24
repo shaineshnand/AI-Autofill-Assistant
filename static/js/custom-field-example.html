@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Field Editor - Integration Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .controls {
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+        }
+        
+        .btn-info {
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .document-area {
+            position: relative;
+            min-height: 600px;
+            background: white;
+            border: 2px dashed #dee2e6;
+            margin: 20px;
+            padding: 20px;
+            cursor: crosshair;
+        }
+        
+        .document-area.edit-mode {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        
+        .status {
+            padding: 10px 20px;
+            background: #e9ecef;
+            border-top: 1px solid #dee2e6;
+            font-size: 14px;
+            color: #6c757d;
+        }
+        
+        .field-count {
+            font-weight: bold;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Custom Field Editor</h1>
+            <p>Easy-to-integrate field creation and management</p>
+        </div>
+        
+        <div class="controls">
+            <button id="toggleEditMode" class="btn btn-primary">
+                <span id="editModeText">Edit Mode</span>
+            </button>
+            <button id="addFieldBtn" class="btn btn-info" style="display: none;">
+                Add Field
+            </button>
+            <button id="deleteAllBtn" class="btn btn-danger" style="display: none;">
+                Delete All Fields
+            </button>
+            <button id="exportDataBtn" class="btn btn-info">
+                Export Data
+            </button>
+            <button id="importDataBtn" class="btn btn-info">
+                Import Data
+            </button>
+        </div>
+        
+        <div id="documentArea" class="document-area">
+            <p>Click "Edit Mode" to start adding custom fields. Click anywhere in this area to add fields when in edit mode.</p>
+            <p>Fields can be dragged around and edited. Use the controls above to manage them.</p>
+        </div>
+        
+        <div class="status">
+            Status: <span id="statusText">Ready</span> | 
+            Fields: <span id="fieldCount" class="field-count">0</span> | 
+            Edit Mode: <span id="editModeStatus">Off</span>
+        </div>
+    </div>
+
+    <!-- Include the Custom Field Editor library -->
+    <script src="custom-field-editor.js"></script>
+    
+    <script>
+        // Initialize the Custom Field Editor
+        const fieldEditor = new CustomFieldEditor({
+            targetContainer: document.getElementById('documentArea'),
+            debug: true,
+            onFieldAdded: (fieldId, position) => {
+                console.log('Field added:', fieldId, position);
+                updateStatus();
+            },
+            onFieldMoved: (fieldId, position) => {
+                console.log('Field moved:', fieldId, position);
+                updateStatus();
+            },
+            onFieldDeleted: (fieldId) => {
+                console.log('Field deleted:', fieldId);
+                updateStatus();
+            },
+            onEditModeToggle: (isActive) => {
+                console.log('Edit mode toggled:', isActive);
+                updateUI();
+            }
+        });
+        
+        // UI Controls
+        document.getElementById('toggleEditMode').addEventListener('click', () => {
+            const isEditMode = fieldEditor.toggleEditMode();
+            updateUI();
+        });
+        
+        document.getElementById('addFieldBtn').addEventListener('click', () => {
+            // Add field at center of document area
+            const rect = document.getElementById('documentArea').getBoundingClientRect();
+            const x = rect.width / 2 - 75; // Center horizontally
+            const y = rect.height / 2 - 25; // Center vertically
+            fieldEditor.addField(x, y);
+        });
+        
+        document.getElementById('deleteAllBtn').addEventListener('click', () => {
+            if (confirm('Are you sure you want to delete all fields?')) {
+                const count = fieldEditor.removeAllFields();
+                alert(`Deleted ${count} fields`);
+            }
+        });
+        
+        document.getElementById('exportDataBtn').addEventListener('click', () => {
+            const fields = fieldEditor.getAllFields();
+            const data = JSON.stringify(fields, null, 2);
+            
+            // Create download link
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'custom-fields.json';
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            alert('Fields exported to custom-fields.json');
+        });
+        
+        document.getElementById('importDataBtn').addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const fields = JSON.parse(e.target.result);
+                            // Clear existing fields
+                            fieldEditor.removeAllFields();
+                            // Add imported fields
+                            fields.forEach(field => {
+                                fieldEditor.addField(field.x, field.y, { placeholder: field.value });
+                            });
+                            alert(`Imported ${fields.length} fields`);
+                            updateStatus();
+                        } catch (error) {
+                            alert('Error importing file: ' + error.message);
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+            input.click();
+        });
+        
+        // Document area click handler
+        document.getElementById('documentArea').addEventListener('click', (e) => {
+            if (fieldEditor.editModeActive && !fieldEditor.isDragOperation) {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                fieldEditor.addField(x, y);
+            }
+        });
+        
+        // Update UI based on edit mode
+        function updateUI() {
+            const isEditMode = fieldEditor.editModeActive;
+            const editModeText = document.getElementById('editModeText');
+            const editModeStatus = document.getElementById('editModeStatus');
+            const addFieldBtn = document.getElementById('addFieldBtn');
+            const deleteAllBtn = document.getElementById('deleteAllBtn');
+            const documentArea = document.getElementById('documentArea');
+            
+            if (isEditMode) {
+                editModeText.textContent = 'Exit Edit Mode';
+                editModeStatus.textContent = 'On';
+                addFieldBtn.style.display = 'inline-block';
+                deleteAllBtn.style.display = 'inline-block';
+                documentArea.classList.add('edit-mode');
+            } else {
+                editModeText.textContent = 'Edit Mode';
+                editModeStatus.textContent = 'Off';
+                addFieldBtn.style.display = 'none';
+                deleteAllBtn.style.display = 'none';
+                documentArea.classList.remove('edit-mode');
+            }
+        }
+        
+        // Update status display
+        function updateStatus() {
+            const fields = fieldEditor.getAllFields();
+            document.getElementById('fieldCount').textContent = fields.length;
+            document.getElementById('statusText').textContent = `Ready (${fields.length} fields)`;
+        }
+        
+        // Initialize UI
+        updateUI();
+        updateStatus();
+    </script>
+</body>
+</html>

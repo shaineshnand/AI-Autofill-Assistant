@@ -130,3 +130,6 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 os.makedirs(BASE_DIR / 'uploads', exist_ok=True)
 os.makedirs(BASE_DIR / 'processed', exist_ok=True)
 os.makedirs(BASE_DIR / 'media', exist_ok=True)
+
+# Allow iframe embedding for HTML form display
+X_FRAME_OPTIONS = 'SAMEORIGIN'

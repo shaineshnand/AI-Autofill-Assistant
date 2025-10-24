@@ -58,6 +58,13 @@ body {
     overflow: hidden;
 }
 
+.main-container {
+    display: flex;
+    gap: 20px;
+    height: 100%;
+    width: 100%;
+}
+
 .document-section {
     flex: 2;
     background: white;
@@ -77,6 +84,185 @@ body {
     overflow: hidden;
 }
 
+/* Welcome Section Styles */
+.welcome-section {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.welcome-header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.welcome-header h1 {
+    font-size: 2.5em;
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
+.welcome-header h1 i {
+    color: #007bff;
+    margin-right: 15px;
+}
+
+.welcome-subtitle {
+    font-size: 1.2em;
+    color: #7f8c8d;
+    font-weight: 300;
+}
+
+/* Workflow Options */
+.workflow-info {
+    margin: 40px 0;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.workflow-card {
+    background: white;
+    border-radius: 16px;
+    padding: 30px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    border: 2px solid transparent;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.workflow-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+}
+
+.html-workflow {
+    border-color: #28a745;
+    background: linear-gradient(135deg, #f8fff9 0%, #e8f5e8 100%);
+}
+
+.traditional-workflow {
+    border-color: #007bff;
+    background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
+}
+
+.workflow-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.workflow-icon {
+    font-size: 2em;
+    margin-right: 15px;
+}
+
+.html-workflow .workflow-icon {
+    color: #28a745;
+}
+
+.traditional-workflow .workflow-icon {
+    color: #007bff;
+}
+
+.workflow-header h3 {
+    font-size: 1.5em;
+    color: #2c3e50;
+    margin: 0;
+    flex: 1;
+}
+
+.new-badge {
+    background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.8em;
+    font-weight: bold;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.workflow-description p {
+    font-weight: 600;
+    color: #34495e;
+    margin-bottom: 15px;
+}
+
+.workflow-description ul {
+    list-style: none;
+    padding: 0;
+    margin-bottom: 20px;
+}
+
+.workflow-description li {
+    padding: 8px 0;
+    color: #5a6c7d;
+    position: relative;
+    padding-left: 25px;
+}
+
+.workflow-description li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: #007bff;
+    font-weight: bold;
+}
+
+.workflow-benefits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 25px;
+}
+
+.benefit {
+    background: rgba(40, 167, 69, 0.1);
+    color: #28a745;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    font-weight: 500;
+}
+
+.workflow-btn {
+    width: 100%;
+    padding: 15px 25px;
+    font-size: 1.1em;
+    font-weight: 600;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.html-workflow .workflow-btn {
+    background: linear-gradient(45deg, #28a745, #20c997);
+    color: white;
+}
+
+.html-workflow .workflow-btn:hover {
+    background: linear-gradient(45deg, #218838, #1ea085);
+    transform: translateY(-2px);
+}
+
+.traditional-workflow .workflow-btn {
+    background: linear-gradient(45deg, #007bff, #0056b3);
+    color: white;
+}
+
+.traditional-workflow .workflow-btn:hover {
+    background: linear-gradient(45deg, #0056b3, #004085);
+    transform: translateY(-2px);
+}
+
+/* Upload Area Styles */
 .upload-area {
     border: 2px dashed #ddd;
     border-radius: 12px;
@@ -85,6 +271,7 @@ body {
     background-color: #fafafa;
     transition: all 0.3s ease;
     cursor: pointer;
+    margin-top: 20px;
 }
 
 .upload-area:hover {
@@ -95,6 +282,174 @@ body {
 .upload-area.dragover {
     border-color: #007bff;
     background-color: #e6f3ff;
+}
+
+.upload-content {
+    pointer-events: none;
+}
+
+/* Document Results Styles */
+.document-results {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 30px;
+}
+
+.results-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.results-header h2 {
+    font-size: 2em;
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
+.results-header h2 i {
+    color: #28a745;
+    margin-right: 10px;
+}
+
+.results-header p {
+    font-size: 1.1em;
+    color: #7f8c8d;
+}
+
+.results-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.results-actions .btn {
+    padding: 12px 24px;
+    font-size: 1em;
+    font-weight: 600;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.results-actions .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* HTML Form Display Styles */
+.html-form-container {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.form-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.form-header h3 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
+.form-header p {
+    color: #7f8c8d;
+}
+
+.html-form-content {
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    overflow: hidden;
+    background: white;
+}
+
+.html-form-iframe {
+    width: 100%;
+    height: 600px;
+    border: none;
+    background: white;
+}
+
+.form-placeholder {
+    text-align: center;
+    padding: 60px 20px;
+    color: #7f8c8d;
+}
+
+.form-placeholder i {
+    font-size: 3em;
+    margin-bottom: 20px;
+    color: #dee2e6;
+}
+
+.workflow-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    margin: 30px 0;
+    flex-wrap: wrap;
+}
+
+.workflow-actions .btn-large {
+    padding: 15px 30px;
+    font-size: 1.2em;
+    font-weight: 600;
+}
+
+.ai-fill-success {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    color: #155724;
+    padding: 15px 20px;
+    border-radius: 8px;
+    text-align: center;
+    margin: 20px 0;
+    border: 1px solid #c3e6cb;
+}
+
+.ai-fill-success i {
+    margin-right: 10px;
+    font-size: 1.2em;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .main-container {
+        flex-direction: column;
+    }
+    
+    .workflow-options {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+    
+    .results-actions {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .results-actions .btn {
+        width: 100%;
+        max-width: 300px;
+    }
+    
+    .html-form-iframe {
+        height: 400px;
+    }
+    
+    .workflow-actions {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .workflow-actions .btn {
+        width: 100%;
+        max-width: 300px;
+    }
 }
 
 .upload-icon {
@@ -648,6 +1003,72 @@ body {
     border: 1px solid #bee5eb;
 }
 
+/* Chat Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes typingDots {
+    0%, 20% { opacity: 0.2; }
+    40% { opacity: 1; }
+    60%, 100% { opacity: 0.2; }
+}
+
+.typing-indicator .dots span {
+    animation: typingDots 1.4s infinite;
+}
+
+.typing-indicator .dots span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-indicator .dots span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+.typing-indicator {
+    opacity: 0.8;
+}
+
+/* Quick action buttons */
+.quick-action-btn {
+    transition: all 0.2s ease;
+}
+
+.quick-action-btn:hover {
+    background: #007bff !important;
+    color: white !important;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0, 123, 255, 0.3);
+}
+
+.quick-action-btn:active {
+    transform: translateY(0);
+}
+
+/* Enhanced message styling */
+.message.bot .message-content strong {
+    color: #007bff;
+}
+
+.message.bot .message-content ul {
+    list-style-type: none;
+}
+
+.message.bot .message-content ul li:before {
+    content: "✓ ";
+    color: #28a745;
+    font-weight: bold;
+    margin-right: 5px;
+}
+
 @media (max-width: 768px) {
     .app {
         flex-direction: column;
@@ -659,6 +1080,15 @@ body {
     
     .chat-section {
         max-height: 400px;
+    }
+    
+    .quick-actions {
+        padding: 5px !important;
+    }
+    
+    .quick-action-btn {
+        font-size: 0.7em !important;
+        padding: 3px 8px !important;
     }
 }
 

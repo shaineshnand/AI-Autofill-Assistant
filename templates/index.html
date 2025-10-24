@@ -3,139 +3,407 @@
 
 {% block content %}
 <div class="content-area">
-    <div class="document-section">
-        {% if not document %}
-            <div class="upload-area" id="uploadArea">
-                <i class="fas fa-cloud-upload-alt upload-icon"></i>
-                <div class="upload-text">Drop your document here or click to upload</div>
-                <div class="upload-subtext">Supports PDF, Word, Text, Images, and more document formats</div>
-                <form id="uploadForm" method="post" action="/upload/" enctype="multipart/form-data" style="display: none;">
-                    {% csrf_token %}
-                    <input type="file" id="fileInput" name="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.tiff,.tif,.webp,.doc,.docx,.txt,.rtf">
-                </form>
-            </div>
-        {% else %}
-            <div class="document-info">
-                <h3><i class="fas fa-file-alt"></i> {{ document.filename }}</h3>
-                <p><strong>Document ID:</strong> {{ document.id }}</p>
-                <p><strong>Total Fields:</strong> {{ document.total_blanks }}</p>
-                <p><strong>Status:</strong> Ready for filling</p>
-                <div class="document-actions">
-                    <button class="btn btn-info preview-btn" id="previewBtn">
-                        <i class="fas fa-eye"></i> Preview Document
-                    </button>
-                    {% if document.fillable_pdf %}
-                    <a href="{{ document.fillable_pdf }}" class="btn btn-secondary" download="fillable_{{ document.filename }}">
-                        <i class="fas fa-download"></i> Download Fillable PDF
-                    </a>
-                    {% endif %}
-                    <button class="btn btn-warning regenerate-btn" id="regenerateBtn">
-                        <i class="fas fa-redo"></i> Generate & Download Filled PDF
-                    </button>
-                    <button class="btn btn-success train-btn" id="trainBtn">
-                        <i class="fas fa-graduation-cap"></i> Train System
-                    </button>
-                    <button class="btn btn-primary start-over-btn" id="startOverBtn">
-                        <i class="fas fa-upload"></i> Upload New Document
-                    </button>
-                </div>
-                
-                <!-- Training Status -->
-                <div class="training-status" id="trainingStatus" style="display: none;">
-                    <h4><i class="fas fa-graduation-cap"></i> Training Status</h4>
-                    <div class="training-info" id="trainingInfo">
-                        <!-- Training information will be populated here -->
+    <!-- Main Container with Side-by-Side Layout -->
+    <div class="main-container">
+        <!-- Left Side: Document Processing -->
+        <div class="document-section">
+            {% if not document %}
+                <div class="welcome-section">
+                    <div class="welcome-header">
+                        <h1><i class="fas fa-robot"></i> AI PDF Autofill Assistant</h1>
+                        <p class="welcome-subtitle">Transform your PDFs with intelligent form filling</p>
                     </div>
-                </div>
-            </div>
-
-            <div class="fields-list">
-                <div class="fields-header">
-                    <h3><i class="fas fa-edit"></i> Document Fields</h3>
-                    <div class="bulk-actions">
-                        <button class="btn btn-secondary" id="selectAllBtn" title="Select all fields">
-                            <i class="fas fa-check-square"></i> Select All
-                        </button>
-                        <button class="btn btn-danger" id="deleteSelectedBtn" style="display: none;" title="Delete selected fields">
-                            <i class="fas fa-trash-alt"></i> Delete Selected (<span id="selectedCount">0</span>)
-                        </button>
-                        <button class="btn btn-success fill-all-btn" id="fillAllBtn">
-                            <i class="fas fa-magic"></i> AI Fill All Fields
-                        </button>
-                    </div>
-                </div>
-                {% for field in document.fields %}
-                    <div class="field-item" data-field-id="{{ field.id }}">
-                        <div class="field-header">
-                            <div class="field-info">
-                                <input type="checkbox" class="field-checkbox" data-field-id="{{ field.id }}" title="Select for deletion">
-                                <span class="field-label">Field {{ field.id }}</span>
-                                <span class="field-context">{{ field.context }}</span>
+                    
+                    <!-- HTML Workflow Info -->
+                    <div class="workflow-info">
+                        <div class="workflow-card html-workflow">
+                            <div class="workflow-header">
+                                <i class="fas fa-code workflow-icon"></i>
+                                <h3>HTML Workflow</h3>
                             </div>
-                            <div class="field-actions">
-                                <button class="btn btn-secondary ai-suggest-btn" data-field-id="{{ field.id }}">
-                                    <i class="fas fa-brain"></i> AI Suggest
-                                </button>
-                                <button class="btn btn-danger delete-field-btn" data-field-id="{{ field.id }}" title="Delete this field">
-                                    <i class="fas fa-trash"></i> Delete
-                                </button>
+                            <div class="workflow-description">
+                                <p><strong>Revolutionary approach:</strong></p>
+                                <ul>
+                                    <li>PDF → HTML conversion</li>
+                                    <li>AI fills form fields</li>
+                                    <li>HTML → PDF output</li>
+                                </ul>
+                                <div class="workflow-benefits">
+                                    <span class="benefit">✓ More reliable</span>
+                                    <span class="benefit">✓ Better formatting</span>
+                                    <span class="benefit">✓ Faster processing</span>
+                                </div>
                             </div>
                         </div>
-                        <input type="text" class="field-input" 
-                               placeholder="Enter {{ field.context }}..." 
-                               value="{{ field.user_content }}"
-                               data-field-id="{{ field.id }}">
-                        {% if field.ai_suggestion %}
-                            <div class="ai-suggestion">
-                                <strong>AI Suggestion:</strong> {{ field.ai_suggestion }}
-                            </div>
-                        {% endif %}
                     </div>
-                {% endfor %}
-            </div>
-
-            <div class="action-buttons">
-                <button class="btn btn-success" id="generatePdfBtn">
-                    <i class="fas fa-download"></i> Generate & Download PDF
-                </button>
-            </div>
-        {% endif %}
-    </div>
-
-    <div class="chat-section">
-        <div class="chat-header">
-            <h3><i class="fas fa-comments"></i> AI Assistant</h3>
-            <div class="ollama-status">
-                {% if ollama_status.running %}
-                    <span class="status-indicator online">
-                        <i class="fas fa-circle"></i> Ollama Online ({{ ollama_status.models|length }} models)
-                    </span>
-                {% else %}
-                    <span class="status-indicator offline">
-                        <i class="fas fa-circle"></i> Ollama Offline - Using fallback responses
-                    </span>
-                {% endif %}
-            </div>
-        </div>
-        
-        <div class="chat-messages" id="chatMessages">
-            {% if document %}
-                <div class="message bot">
-                    <div class="message-content">
-                        Great! I've analyzed your document "{{ document.filename }}" and found {{ document.total_blanks }} blank spaces that need to be filled. I can help you fill them out. What information would you like to provide?
+                    
+                    <!-- Upload Area -->
+                    <div class="upload-area" id="uploadArea" onclick="handleUploadAreaClick()">
+                        <div class="upload-content">
+                            <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                            <div class="upload-text">Drop your PDF here or click to upload</div>
+                            <div class="upload-subtext">PDF files only - HTML workflow</div>
+                        </div>
+                        <form id="uploadForm" method="post" action="/upload/" enctype="multipart/form-data" style="display: none;">
+                            {% csrf_token %}
+                            <input type="file" id="fileInput" name="file" accept=".pdf">
+                        </form>
                     </div>
-                    <div class="message-time">{{ now|date:"H:i" }}</div>
                 </div>
+            {% else %}
+                <!-- HTML Workflow Results -->
+                {% if document.html_processed %}
+                <div class="document-results">
+                    <div class="results-header">
+                        <h2><i class="fas fa-code"></i> PDF Converted to HTML</h2>
+                        <p>Found {{ document.total_blanks }} fields in "{{ document.filename }}"</p>
+                    </div>
+                    
+                      <!-- HTML Form Display -->
+                      <div class="html-form-container">
+                         <div class="form-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                             <div>
+                                 <h3><i class="fas fa-edit"></i> Fillable Form</h3>
+                                 <p>Review and edit the form fields below:</p>
+                             </div>
+                             <div style="display: flex; gap: 10px; align-items: center;">
+                                 <button class="btn btn-success" id="editModeBtn" 
+                                         style="padding: 10px 20px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); border: none;">
+                                     <i class="fas fa-edit"></i> Edit Mode
+                                 </button>
+                                 <div id="editModeButtons" style="display: none; gap: 10px; align-items: center;">
+                                     <button class="btn btn-info" id="addCustomFieldBtn" 
+                                             style="padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
+                                         <i class="fas fa-plus-circle"></i> Add Custom Field
+                                     </button>
+                                     <button class="btn btn-warning" id="deleteAllFieldsBtn" 
+                                             style="padding: 10px 20px; background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%); border: none; color: #000;">
+                                         <i class="fas fa-trash"></i> Delete All Fields
+                                     </button>
+                                 </div>
+                             </div>
+                         </div>
+                         
+                         <!-- Add Field Mode Instructions -->
+                         <div id="addFieldInstructions" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); animation: fadeIn 0.3s ease-in;">
+                             <div style="display: flex; justify-content: space-between; align-items: start;">
+                                 <div>
+                                     <strong style="font-size: 1.1em;">✨ Add Field Mode Active!</strong><br>
+                                     <span style="opacity: 0.95; font-size: 0.95em;">Click anywhere in the document below where you want to add a new editable field.</span>
+                                 </div>
+                                 <button id="cancelAddFieldBtn"
+                                         style="padding: 8px 15px; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.2s;">
+                                     <i class="fas fa-times"></i> Cancel
+                                 </button>
+                             </div>
+                         </div>
+                        
+                        <div class="html-form-content">
+                            {% if document.filled_html_url %}
+                                <iframe src="{{ document.filled_html_url }}" class="html-form-iframe" id="htmlFormIframe"></iframe>
+                            {% elif document.html_url %}
+                                <iframe src="{{ document.html_url }}" class="html-form-iframe" id="htmlFormIframe"></iframe>
+                            {% else %}
+                                <div class="form-placeholder">
+                                    <i class="fas fa-file-code"></i>
+                                    <p>HTML form will be displayed here</p>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <div class="workflow-actions">
+                        {% if not document.ai_filled %}
+                            <button class="btn btn-success btn-large" id="aiFillBtn">
+                                <i class="fas fa-magic"></i> AI Fill All Fields
+                            </button>
+                        {% else %}
+                            <button class="btn btn-primary btn-large" id="generatePdfBtn">
+                                <i class="fas fa-download"></i> Generate PDF
+                            </button>
+                        {% endif %}
+                        
+                        <button class="btn btn-secondary" id="startOverBtn">
+                            <i class="fas fa-redo"></i> Start Over
+                        </button>
+                    </div>
+                    
+                    {% if document.ai_filled %}
+                        <div class="ai-fill-success">
+                            <i class="fas fa-check-circle"></i>
+                            <span>AI data filled successfully! Ready to generate PDF.</span>
+                        </div>
+                    {% endif %}
+                </div>
+                {% else %}
+                <!-- Traditional Document Results -->
+                <div class="document-results">
+                    <div class="results-header">
+                        <h2><i class="fas fa-file-alt"></i> Document Analysis Complete</h2>
+                        <p>Found {{ document.total_blanks }} fields to fill in "{{ document.filename }}"</p>
+                    </div>
+                    
+                    <div class="results-actions">
+                        <button class="btn btn-success" id="fillAllBtn">
+                            <i class="fas fa-magic"></i> Fill All Fields with AI
+                        </button>
+                        <button class="btn btn-primary" id="previewBtn">
+                            <i class="fas fa-eye"></i> Preview Document
+                        </button>
+                        <button class="btn btn-secondary" id="startOverBtn">
+                            <i class="fas fa-redo"></i> Start Over
+                        </button>
+                    </div>
+                    
+                    <!-- Document Fields -->
+                    <div class="document-fields">
+                        {% for field in document.fields %}
+                        <div class="field-item" data-field-id="{{ field.id }}">
+                            <div class="field-header">
+                                <label class="field-label">{{ field.context }}</label>
+                                <div class="field-actions">
+                                    <button class="btn btn-secondary ai-suggest-btn" data-field-id="{{ field.id }}">
+                                        <i class="fas fa-brain"></i> AI Suggest
+                                    </button>
+                                    <button class="btn btn-danger delete-field-btn" data-field-id="{{ field.id }}" title="Delete this field">
+                                        <i class="fas fa-trash"></i> Delete
+                                    </button>
+                                </div>
+                            </div>
+                            <input type="text" class="field-input" 
+                                   placeholder="Enter {{ field.context }}..." 
+                                   value="{{ field.user_content }}"
+                                   data-field-id="{{ field.id }}">
+                            {% if field.ai_suggestion %}
+                                <div class="ai-suggestion">
+                                    <strong>AI Suggestion:</strong> {{ field.ai_suggestion }}
+                                </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-success" id="generatePdfBtn">
+                            <i class="fas fa-download"></i> Generate & Download PDF
+                        </button>
+                    </div>
+                </div>
+                {% endif %}
             {% endif %}
         </div>
+        
+        <!-- Right Side: Chat Section -->
+        <div class="chat-section">
+            <div class="chat-header">
+                <h3><i class="fas fa-comments"></i> AI Assistant</h3>
+                <div class="ollama-status">
+                    {% if ollama_status.is_running %}
+                        <span class="status-indicator online">
+                            <i class="fas fa-circle"></i> Ollama Online ({{ ollama_status.models|length }} models)
+                        </span>
+                    {% else %}
+                        <span class="status-indicator offline">
+                            <i class="fas fa-circle"></i> Ollama Offline - Using fallback responses
+                        </span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="chat-messages" id="chatMessages">
+                {% if document %}
+                    <div class="message bot">
+                        <div class="message-content">
+                            <strong>🎉 Document Loaded Successfully!</strong><br><br>
+                            📄 <strong>{{ document.filename }}</strong><br>
+                            📝 Found <strong>{{ document.total_blanks }} fillable fields</strong><br><br>
+                            
+                            💡 <strong>Quick Actions:</strong><br>
+                            • Click "AI Fill" to auto-fill all fields<br>
+                            • Edit any field manually<br>
+                            • Generate PDF when ready<br><br>
+                            
+                            Ask me anything! I can help with:
+                            <ul style="margin: 10px 0 0 20px; padding: 0;">
+                                <li>Understanding what each field needs</li>
+                                <li>Providing suggestions for specific fields</li>
+                                <li>Explaining document sections</li>
+                                <li>Answering questions about your document</li>
+                            </ul>
+                        </div>
+                        <div class="message-time">{{ now|date:"H:i" }}</div>
+                    </div>
+                {% else %}
+                    <div class="message bot">
+                        <div class="message-content">
+                            <strong>👋 Welcome to AI PDF Autofill Assistant!</strong><br><br>
+                            
+                            I'm your intelligent document assistant, powered by AI. Here's what I can do for you:<br><br>
+                            
+                            ✨ <strong>Smart Features:</strong><br>
+                            • 🤖 Automatically fill forms with AI<br>
+                            • 📝 Understand document context<br>
+                            • 💬 Answer your questions in real-time<br>
+                            • 🎯 Suggest appropriate field values<br><br>
+                            
+                            <strong>Get Started:</strong><br>
+                            1. Upload a PDF document above<br>
+                            2. I'll detect all fillable fields<br>
+                            3. Click "AI Fill" or chat with me for help!<br><br>
+                            
+                            💡 <strong>Tip:</strong> You can ask me things like:<br>
+                            • "Fill the name field with John Smith"<br>
+                            • "What does this document need?"<br>
+                            • "Suggest a value for the email field"
+                        </div>
+                        <div class="message-time">{{ now|date:"H:i" }}</div>
+                    </div>
+                {% endif %}
+            </div>
 
-        <div class="chat-input">
-            <div class="input-group">
-                <input type="text" class="chat-input-field" id="chatInput"
-                       placeholder="Ask me anything about your document...">
-                <button class="send-button" id="sendBtn">
-                    <i class="fas fa-paper-plane"></i>
-                </button>
+            <div class="chat-input">
+                <!-- Quick Action Suggestions -->
+                <div class="quick-actions" style="padding: 10px; border-top: 1px solid #eee; background: #f8f9fa;">
+                    <div style="font-size: 0.85em; color: #666; margin-bottom: 5px;">💡 Quick suggestions:</div>
+                    <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                        <button class="quick-action-btn" onclick="document.getElementById('chatInput').value='What fields need to be filled?'; document.getElementById('sendBtn').click();" 
+                                style="padding: 5px 10px; font-size: 0.8em; border: 1px solid #007bff; background: white; color: #007bff; border-radius: 15px; cursor: pointer;">
+                            What fields need filling?
+                        </button>
+                        <button class="quick-action-btn" onclick="document.getElementById('chatInput').value='Explain this document'; document.getElementById('sendBtn').click();" 
+                                style="padding: 5px 10px; font-size: 0.8em; border: 1px solid #007bff; background: white; color: #007bff; border-radius: 15px; cursor: pointer;">
+                            Explain document
+                        </button>
+                        <button class="quick-action-btn" onclick="document.getElementById('chatInput').value='Help me fill out the employee information section'; document.getElementById('sendBtn').click();" 
+                                style="padding: 5px 10px; font-size: 0.8em; border: 1px solid #007bff; background: white; color: #007bff; border-radius: 15px; cursor: pointer;">
+                            Help with sections
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="input-group">
+                    <input type="text" class="chat-input-field" id="chatInput"
+                           placeholder="Ask me anything about your document...">
+                    <button class="send-button" id="sendBtn">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Sejda Workflow Modal -->
+    <div id="sejdaWorkflowModal" class="modal" style="display: none;">
+        <div class="modal-content-large">
+            <div class="modal-header">
+                <h2><i class="fas fa-robot"></i> Sejda Desktop Workflow</h2>
+                <span class="close-modal" onclick="closeSejdaModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="workflow-steps">
+                    <div class="step active" id="step1">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h3>📂 Opening Sejda Desktop...</h3>
+                            <p class="step-description">We're opening your PDF in Sejda Desktop. Please wait...</p>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progress1"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="step" id="step2">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h3>🎯 Click "Fill & Sign"</h3>
+                            <p class="step-description">In the Sejda window that just opened:</p>
+                            <div class="instruction-box">
+                                <ul class="instruction-list">
+                                    <li>Look at the top menu bar</li>
+                                    <li>Click on <strong>"Fill & Sign"</strong></li>
+                                </ul>
+                            </div>
+                            <button class="btn btn-success btn-large" onclick="nextStep(3)">
+                                ✓ I clicked "Fill & Sign"
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="step" id="step3">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h3>🔍 Click "Add Text" or "Detect Form Fields"</h3>
+                            <p class="step-description">This tells Sejda to find all the blank spaces:</p>
+                            <div class="instruction-box">
+                                <ul class="instruction-list">
+                                    <li>Look for a button that says <strong>"Add Text"</strong> or <strong>"Detect Form Fields"</strong></li>
+                                    <li>Click it and wait for blue boxes to appear on your PDF</li>
+                                </ul>
+                            </div>
+                            <button class="btn btn-success btn-large" onclick="nextStep(4)">
+                                ✓ I see blue boxes on my PDF
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="step" id="step4">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <h3>💾 Save the PDF</h3>
+                            <p class="step-description">Save the fillable PDF:</p>
+                            <div class="instruction-box">
+                                <ul class="instruction-list">
+                                    <li>Press <kbd>Ctrl</kbd> + <kbd>S</kbd> on your keyboard</li>
+                                    <li>Or click <strong>File → Save</strong></li>
+                                    <li>Wait for the save to complete</li>
+                                </ul>
+                            </div>
+                            <button class="btn btn-success btn-large" onclick="nextStep(5)">
+                                ✓ PDF Saved
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="step" id="step5">
+                        <div class="step-number">5</div>
+                        <div class="step-content">
+                            <h3>🚪 Close Sejda</h3>
+                            <p class="step-description">We're almost done!</p>
+                            <div class="instruction-box">
+                                <ul class="instruction-list">
+                                    <li>Close the Sejda Desktop window</li>
+                                    <li>Or press <kbd>Alt</kbd> + <kbd>F4</kbd></li>
+                                </ul>
+                            </div>
+                            <button class="btn btn-success btn-large" onclick="completeSejdaWorkflow()">
+                                ✓ Sejda Closed - Extract & Fill with AI
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="step" id="step6">
+                        <div class="step-number">6</div>
+                        <div class="step-content">
+                            <h3>🤖 AI is Filling Your PDF...</h3>
+                            <p class="step-description">Extracting fields from Sejda and filling with AI data...</p>
+                            <div class="progress-bar">
+                                <div class="progress-fill progress-animated" id="progress6"></div>
+                            </div>
+                            <div id="aiProgress"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="step" id="step7">
+                        <div class="step-number">✓</div>
+                        <div class="step-content">
+                            <h3>🎉 Success!</h3>
+                            <p class="step-description">Your PDF is ready with AI-filled data!</p>
+                            <button class="btn btn-success btn-large" id="downloadFinalPdf">
+                                <i class="fas fa-download"></i> Download Filled PDF
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -145,6 +413,7 @@
 {% if document %}
     <input type="hidden" id="documentId" value="{{ document.id }}">
 {% endif %}
+
 <!-- Document Preview Modal -->
 <div id="previewModal" class="modal">
     <div class="modal-content">

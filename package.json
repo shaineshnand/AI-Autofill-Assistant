@@ -1,0 +1,38 @@
+{
+  "name": "custom-field-editor",
+  "version": "1.0.0",
+  "description": "A standalone JavaScript library for creating, editing, and managing custom fields with drag-and-drop functionality",
+  "main": "static/js/custom-field-editor.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "echo \"Build complete\"",
+    "demo": "open static/js/custom-field-example.html"
+  },
+  "keywords": [
+    "custom-fields",
+    "drag-and-drop",
+    "form-builder",
+    "javascript",
+    "library",
+    "editable-fields",
+    "form-editor"
+  ],
+  "author": "AI Autofill Assistant",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/custom-field-editor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/custom-field-editor/issues"
+  },
+  "homepage": "https://github.com/your-username/custom-field-editor#readme",
+  "files": [
+    "static/js/custom-field-editor.js",
+    "static/js/custom-field-example.html",
+    "CUSTOM_FIELD_INTEGRATION_GUIDE.md"
+  ],
+  "engines": {
+    "node": ">=12.0.0"
+  }
+}
